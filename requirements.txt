@@ -2,7 +2,7 @@ sphinx
 sphinx_rtd_theme
 docutils
 nbsphinx==0.8.6
-jinja2=3.0.1
+jinja2==3.0.1
 distributed
 dask[complete]
 click==7.1.2
