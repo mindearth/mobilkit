@@ -111,7 +111,7 @@ If you use `mobilkit` please cite us:
 
 > Enrico Ubaldi, Takahiro Yabe, Nicholas K. W. Jones, Maham Faisal Khan, Satish V. Ukkusuri and Emanuele Strano
 > **Mobilkit: A Python Toolkit for Urban Resilience and Disaster Risk Management Analytics using High Frequency Human Mobility Data**,
-> 2021, KDD 2021 Humanitarian Mapping Workshop, https://arxiv.org/abs/XXXX.YYYY
+> 2021, KDD 2021 Humanitarian Mapping Workshop, https://arxiv.org/abs/2107.14297
 
 Bibtex:
 ```
@@ -119,8 +119,8 @@ Bibtex:
     title={Mobilkit: A Python Toolkit for Urban Resilience and Disaster Risk Management Analytics using High Frequency Human Mobility Data},
     author={Enrico Ubaldi and Takahiro Yabe and Nicholas K. W. Jones and Maham Faisal Khan and Satish V. Ukkusuri and Emanuele Strano},
     year={2021},
-    eprint={XXXX.YYYY},
-    primaryClass={physics.soc-ph}
+    eprint={2107.14297},
+    primaryClass={cs.CY},
     archivePrefix={arXiv},
 }
 ```
