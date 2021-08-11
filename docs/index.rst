@@ -100,8 +100,11 @@ Installation
 If you already have `scikit-mobility <https://github.com/scikit-mobility/scikit-mobility>`_ installed, skip the environment creation and run these commands from the `skmob` anaconda environment.
 
 `mobilkit` by default will only install core packages needed to run the main functions. There are three optional packages of dipendencies (the `mobilkit[complete]` installs everything):
+
 * `[viz]` will install `contextily`, needed to visualize map backgrounds in certain viz functions;
+
 * `[doc]` will install all the needed packages to build the docs;
+
 * `[skmob]` will install `scikit-mobility` as well.
 
 Test the installation
@@ -125,15 +128,14 @@ If you use `mobilkit` please cite us:
 
 Bibtex:
 
-.. note::
-  @misc{ubaldi2021mobilkit,
-    title={Mobilkit: A Python Toolkit for Urban Resilience and Disaster Risk Management Analytics using High Frequency Human Mobility Data},
-    author={Enrico Ubaldi and Takahiro Yabe and Nicholas K. W. Jones and Maham Faisal Khan and Satish V. Ukkusuri and Emanuele Strano},
-    year={2021},
-    eprint={2107.14297},
-    primaryClass={cs.CY}
-    archivePrefix={arXiv},
-  }
+    @misc{ubaldi2021mobilkit,
+        title={Mobilkit: A Python Toolkit for Urban Resilience and Disaster Risk Management Analytics using High Frequency Human Mobility Data},
+        author={Enrico Ubaldi and Takahiro Yabe and Nicholas K. W. Jones and Maham Faisal Khan and Satish V. Ukkusuri and Emanuele Strano},
+        year={2021},
+        eprint={2107.14297},
+        primaryClass={cs.CY}
+        archivePrefix={arXiv},
+    }
   
 
 Credits and contacts
