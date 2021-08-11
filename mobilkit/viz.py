@@ -21,7 +21,6 @@ from sklearn.metrics import r2_score
 from sklearn.linear_model import LinearRegression
 
 import geopandas as gpd
-import contextily as ctx
 import pyproj
 
 from mobilkit.dask_schemas import (
@@ -35,6 +34,7 @@ from mobilkit.dask_schemas import (
 )
 
 def visualize_simpleplot(df):
+    import contextily as ctx
     gdf = gpd.GeoDataFrame(df, 
                            geometry=gpd.points_from_xy(df[lonColName],
                                                        df[latColName]),
@@ -48,6 +48,7 @@ def visualize_simpleplot(df):
     plt.show()
 
 def visualize_boundarymap(boundary):
+    import contextily as ctx
     fig,ax = plt.subplots(figsize=(15,10))
     x1, y1 = (boundary[0], boundary[1])
     x2, y2 = (boundary[2], boundary[3])
