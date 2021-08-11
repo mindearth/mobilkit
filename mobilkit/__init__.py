@@ -18,3 +18,4 @@ __doc__ = '''
 The `mobilkit` module documentation.
 '''
 
+__version__ = "0.1.7"
