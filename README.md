@@ -83,6 +83,11 @@ You need to have a running version of `Dask` on your system. Once you have it yo
 
 If you already have [`scikit-mobility`](https://github.com/scikit-mobility/scikit-mobility) installed, skip the environment creation and run these commands from the skmob anaconda environment.
 
+`mobilkit` by default will only install core packages needed to run the main functions. There are three optional packages of dipendencies (the `mobilkit[complete]` installs everything):
+- `[viz]` will install `contextily`, needed to visualize map backgrounds in certain viz functions;
+- `[doc]` will install all the needed packages to build the docs;
+- `[skmob]` will install `scikit-mobility` as well.
+
 <a id='installation_conda'></a>
 ### Install with conda
 **TODO**

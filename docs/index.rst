@@ -99,6 +99,11 @@ Installation
 
 If you already have `scikit-mobility <https://github.com/scikit-mobility/scikit-mobility>`_ installed, skip the environment creation and run these commands from the `skmob` anaconda environment.
 
+`mobilkit` by default will only install core packages needed to run the main functions. There are three optional packages of dipendencies (the `mobilkit[complete]` installs everything):
+* `[viz]` will install `contextily`, needed to visualize map backgrounds in certain viz functions;
+* `[doc]` will install all the needed packages to build the docs;
+* `[skmob]` will install `scikit-mobility` as well.
+
 Test the installation
 =====================
 
