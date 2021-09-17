@@ -122,7 +122,7 @@ Citing
 If you use `mobilkit` please cite us: 
 
 .. note::
-  Enrico Ubaldi, Takahiro Yabe, Nicholas K. W. Jones, Maham Faisal Khan, Satish V. Ukkusuri and Emanuele Strano
+  Enrico Ubaldi, Takahiro Yabe, Nicholas K. W. Jones, Maham Faisal Khan, Satish V. Ukkusuri, Riccardo Di Clemente and Emanuele Strano
   Mobilkit: A Python Toolkit for Urban Resilience and Disaster Risk Management Analytics using High Frequency Human Mobility Data,
   2021, KDD 2021 Humanitarian Mapping Workshop, https://arxiv.org/abs/2107.14297
 
@@ -130,7 +130,7 @@ Bibtex:
 
     @misc{ubaldi2021mobilkit,
         title={Mobilkit: A Python Toolkit for Urban Resilience and Disaster Risk Management Analytics using High Frequency Human Mobility Data},
-        author={Enrico Ubaldi and Takahiro Yabe and Nicholas K. W. Jones and Maham Faisal Khan and Satish V. Ukkusuri and Emanuele Strano},
+        author={Enrico Ubaldi and Takahiro Yabe and Nicholas K. W. Jones and Maham Faisal Khan and Satish V. Ukkusuri and Riccardo Di Clemente and Emanuele Strano},
         year={2021},
         eprint={2107.14297},
         primaryClass={cs.CY}
