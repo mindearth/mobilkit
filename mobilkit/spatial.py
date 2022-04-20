@@ -41,6 +41,8 @@ from mobilkit.dask_schemas import (
     dttColName,
     zidColName,
 )
+from mobilkit.tools import computeGDFbounds
+
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 from itertools import chain
 from shapely.geometry import Polygon
@@ -87,6 +89,21 @@ def tessellate(df, tesselation_shp, filterAreas=False, partitions_number=None):
         df_out[zidColName].fillna(-1, inplace=True)
         _df[zidColName] = df_out[zidColName].astype(int)
         return _df
+
+    if filterAreas:
+        # Leave at once the pings outside of bounds
+        bounds = computeGDFbounds(zones_gdf)
+        minx, maxx, miny, maxy = (
+            bounds['minx'],
+            bounds['maxx'],
+            bounds['miny'],
+            bounds['maxy'],
+        )
+        query = '{0} >= {2} & {0} <= {3} & {1} >= {4} & {1} <= {5}'.format(lonColName,
+                                                                           latColName,
+                                                                           minx, maxx,
+                                                                           miny, maxy)
+        df = df.query(query)
 
     if partitions_number is not None:
         df = df.repartition(npartitions=partitions_number)

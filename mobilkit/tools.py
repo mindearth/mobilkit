@@ -9,6 +9,7 @@ from collections import Counter
 
 import numpy as np
 import matplotlib.pyplot as plt
+import geopandas as gpd
 
 from sklearn.cluster import KMeans
 from scipy.cluster.hierarchy import dendrogram, fcluster, linkage, correspond, inconsistent
@@ -292,3 +293,28 @@ def plotClustersMap(gdf, results_clusters, mappings, nClusts=5):
                         .plot(color="none", edgecolor="black", ax=ax, zorder=1)
 
     return gdf, ax
+
+
+def computeGDFbounds(gdf: gpd.GeoDataFrame) -> dict:
+    '''
+    Computes the bounds of a `geopandas.GeoDataFrame` `gdf`
+    and returns a dictionary with the `min(x,y)` and `max(x,y)`
+    keys and their value as values (minx is the minimum longitude).
+
+    Parameters
+    ----------
+    gdf : geopandas.GeoDataFrame
+        The GeoDataFrame with at least the ``geometry`` column.
+
+    Returns
+    -------
+    bounds : dict
+        The mapping between the min/max x and y and their values.
+    '''
+    return gdf.bounds.agg({
+            'minx': min,
+            'miny': min,
+            'maxx': max,
+            'maxy': max,
+        }).to_dict()
+
