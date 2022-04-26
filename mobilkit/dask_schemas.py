@@ -25,6 +25,7 @@ nunique = dd.Aggregation(
     finalize=lambda s1: s1.apply(lambda final: len(set(final))),
 )
 
+# Constant column names
 accColName = "acc"
 lonColName = "lng"
 latColName = "lat"
@@ -32,6 +33,8 @@ uidColName = "uid"
 utcColName = "UTC"
 dttColName = "datetime"
 zidColName = "tile_ID"
+stpColName = 'stops'
+ldtColName = 'leaving_datetime'
 
 
 eventLineRAW = [

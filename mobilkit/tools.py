@@ -133,7 +133,11 @@ def checkScore(results_clusters, score="scores"):
 
     return ax
 
-def visualizeClustersProfiles(results_clusters, nClusts=5, showMean=False, showMedian=True, showCurves=True, together=False):
+def visualizeClustersProfiles(results_clusters, nClusts=5,
+                              showMean=False,
+                              showMedian=True,
+                              showCurves=True,
+                              together=False):
     '''Function to plot the temporal profiles of clustering.
 
     Parameters

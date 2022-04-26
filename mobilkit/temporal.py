@@ -13,6 +13,7 @@ import seaborn as sns
 import geopandas as gpd
 from datetime import datetime, timedelta
 
+import dask
 from dask import dataframe as dd
 from dask import array as da
 import dask.bag as db
@@ -288,7 +289,7 @@ def computeTemporalProfile(df_tot, timeBin,
         (i.e., ``"weekly"`` or ``"monthly"`` if ``timeBin="week"``) otherwise
         the normalization will fail.
     weekdays : set or list, optional
-        The weekdays to consider (1 Sunday -> 7 Saturday).
+        The weekdays to consider (0 Monday -> 6 Sunday).
         Default ``None`` equals to keep all.
     normalize : str, optional
         One of ``None, "area", "total"``.
@@ -949,3 +950,55 @@ def plotDisplacement(count_users_per_area, pivoted, gdf,
     
     return fig, gdf
     
+
+
+def computeVolumeProfile(df: dask.dataframe.DataFrame,
+                         what: str='pings',
+                         normalized: bool =True,
+                         freq='1d',
+                        ) -> pd.DataFrame:
+    '''
+    Computes the volume of pings or users in a given interval given by `freq`.
+    
+    Parameters
+    ----------
+    df : dask.dataframe.DataFrame
+        The dataframe containing the pings with at least the :attr:`mobilkit.dask_schemas.dttColName` and the
+        :attr:`mobilkit.dask_schemas.uidColName` columns.
+    what : str
+        `pings` `users` or `both`, the volume to count.
+    `normalize` : bool
+        If `True` will normalize the curve in the 0-1 range, otherwise returns the raw count.
+    `freq` : str
+        A valid datetime interval up to which the dates will be floored.
+        
+    Returns
+    -------
+    volume : pd.DataFrame
+        A dataframe whose index is the time bin and whose value is the observed volume.
+    '''
+    df['time_bin'] = df[dttColName].dt.floor(freq)
+    if what == 'pings':
+        aggDict = {uidColName: 'count'}
+    elif what == 'users':
+        aggDict = {uidColName: nunique}
+    elif what == 'both':
+        aggDict = {uidColName: [nunique, 'count']}
+    else:
+        raise RuntimeError('Unknown aggregation %s' % what)
+        
+    df_volume = df.groupby('time_bin').agg(aggDict).compute()
+    del df['time_bin']
+
+    if what == 'both':
+        df_volume = df_volume.droplevel(0, axis=1)
+        df_volume.rename(columns={'nunique': 'users', 'count': 'pings'},
+                         inplace=True)
+    else:
+        df_volume.rename(columns={uidColName: what},
+                         inplace=True)
+    
+    if normalized:
+        df_volume /= df_volume.max()
+        
+    return df_volume

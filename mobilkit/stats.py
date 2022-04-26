@@ -13,6 +13,7 @@
 
     However, tasks such as stop-detection or POI visit rate computation may be affected by the noise added to data in the user's home location area. Please check if your data has such noise added and choose the spatial tessellation according to your use case.
 '''
+import dask
 from dask import dataframe as dd
 from dask import array as da
 import dask.bag as db
@@ -351,7 +352,7 @@ def areaStats(df, start_date=None, stop_date=None, hours=(0,24), weekdays=(1,2,3
     return df_act
 
 
-def userHomeWorkLocation(df_hw):
+def userHomeWorkLocation(df_hw : dask.dataframe, force_different: bool=False):
     '''Given a dataframe returned by :attr:`mobilkit.stats.userHomeWork` computes, for each user, the home and work area as well as their location.
     The home/work area is the one with more pings recorded and the location is assigned to the mean point of this cloud.
 
@@ -360,6 +361,8 @@ def userHomeWorkLocation(df_hw):
 
     df_hw : dask.dataframe
         A dataframe as returned by :attr:`mobilkit.stats.userHomeWork` with at least the `uid`, `tile_ID` and `isHome` and `isWork` columns.
+    force_different :  bool, optional
+        Whether we want to force the work location to be different from the home location.
 
     Returns
     -------
@@ -384,52 +387,78 @@ def userHomeWorkLocation(df_hw):
     '''
     # Same as before, focus on the points on the zone and times and compute the average point.
 #     w_u = pyspark.sql.Window().partitionBy(uidColName)
-
-    df_hw_cnt = df_hw.groupby([uidColName, zidColName])\
-                    [["isHome","isWork"]].agg("sum").reset_index()
-    df_hw_max = df_hw_cnt.groupby(uidColName)[["isHome","isWork"]].agg("max")
-    
-    df_hw_tot = df_hw_cnt.set_index(uidColName)\
-                            .join(df_hw_max, rsuffix="_max")\
-                            .reset_index()
-    
-    df_h_tot = df_hw_tot[df_hw_tot["isHome"] == df_hw_tot["isHome_max"]]\
-                    .drop_duplicates(uidColName)
-    df_w_tot = df_hw_tot[df_hw_tot["isWork"] == df_hw_tot["isWork_max"]]\
-                    .drop_duplicates(uidColName)
-    
-    loc_home = df_hw.merge(df_h_tot[[uidColName,zidColName,"isHome_max"]],
-                           on=[uidColName,zidColName], how="inner")\
-                        [[uidColName,zidColName,latColName,lonColName,"isHome_max"]]\
-                        .rename(columns={"isHome_max": "pings"})\
-                        .reset_index().groupby(uidColName).agg({
-                                "pings": "first",
-                                zidColName: "first",
-                                latColName: "mean",
-                                lonColName: "mean",
-                            })
-    
-    loc_work = df_hw.merge(df_w_tot[[uidColName,zidColName,"isWork_max"]],
-                           on=[uidColName,zidColName], how="inner")\
-                        [[uidColName,zidColName,latColName,lonColName,"isWork_max"]]\
-                        .rename(columns={"isWork_max": "pings"})\
-                        .reset_index().groupby(uidColName).agg({
-                                "pings": "first",
-                                zidColName: "first",
-                                latColName: "mean",
-                                lonColName: "mean",
-                            })
-    
-    df_hw_loc = loc_home.join(loc_work, uidColName,
-                              how="outer", lsuffix="_home", rsuffix="_work").reset_index()
-    df_hw_loc = df_hw_loc.rename(columns={
-                                    "tile_ID_home": "home_tile_ID",
-                                    "tile_ID_work": "work_tile_ID",
-                                    "pings_work": "work_pings",
-                                    "pings_home": "home_pings",
-                                    })
+    meta = {
+        'tot_pings': np.int64,
+        'home_'+zidColName: np.int64,
+        latColName+'_home': np.float64,
+        lonColName+'_home': np.float64,
+        'home_pings': np.int64,
+        'work_'+zidColName: np.int64,
+        latColName+'_work': np.float64,
+        lonColName+'_work': np.float64,
+        'work_pings': np.int64,
+    }
+    df_hw_loc = df_hw.groupby([uidColName])\
+                    .apply(
+                        _determine_home_work_user,
+                        force_different=force_different,
+                        meta=meta
+                    )
 
     return df_hw_loc
+
+
+def _determine_home_work_user(df, force_different: bool=False):
+    '''
+    Help function to compute at once the home and work location of users.
+    Parameters
+    ----------
+    df : dask.dataframe
+        The slice of the df returned by :attr:`mobilkit.stats.userHomeWork` when groupbed by user id.
+    force_different : bool, optional
+        Whether or not to force the work tile to be different from the home one.
+    '''
+    n_pings = df.shape[0]
+    uid = df[uidColName].iloc[0]
+    cnt_hw = df[df['isHome'] | df['isWork']].groupby(zidColName)[["isHome","isWork"]].agg("sum")
+    if cnt_hw.shape[0] == 0:
+        home_tile = work_tile = None
+        home_pings = work_pings = {
+            latColName: None,
+            lonColName: None,
+            'n_pings': 0
+        }
+    else:
+        home_tile = cnt_hw.reset_index().sort_values('isHome', ascending=False).iloc[0][zidColName]
+        home_pings = df[(df['isHome'] == True) & (df[zidColName] == home_tile)].agg({
+            latColName: 'mean',
+            lonColName: 'mean',
+            zidColName: 'count',
+        }).rename({zidColName: 'n_pings'})
+        
+        if force_different:
+            cnt_hw = cnt_hw[cnt_hw.index != home_tile]
+        if cnt_hw.shape[0] > 0:
+            work_tile = cnt_hw.reset_index().sort_values('isWork', ascending=False).iloc[0][zidColName]
+            work_pings = df[(df['isWork'] == True) & (df[zidColName] == work_tile)].agg({
+                latColName: 'mean',
+                lonColName: 'mean',
+                zidColName: 'count',
+            }).rename({zidColName: 'n_pings'})
+        else:
+            work_tile = None
+            work_pings = {latColName: None, lonColName: None, 'n_pings': 0}
+    
+    return pd.Series({'tot_pings': n_pings,
+                      'home_'+zidColName: home_tile,
+                      latColName+'_home': home_pings[latColName],
+                      lonColName+'_home': home_pings[lonColName],
+                      'home_pings': home_pings['n_pings'],
+                      'work_'+zidColName: work_tile,
+                      latColName+'_work': work_pings[latColName],
+                      lonColName+'_work': work_pings[lonColName],
+                      'work_pings': work_pings['n_pings'],
+                     })
 
 
 def plotUsersHist(users_stats, min_pings=5, min_days=5, days="active", cmap='YlGnBu', xbins=100, ybins=20):

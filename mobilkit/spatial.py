@@ -40,6 +40,8 @@ from mobilkit.dask_schemas import (
     utcColName,
     dttColName,
     zidColName,
+    stpColName,
+    ldtColName,
 )
 from mobilkit.tools import computeGDFbounds
 
@@ -87,7 +89,7 @@ def tessellate(df, tesselation_shp, filterAreas=False, partitions_number=None):
                             zones_gdf[[zidColName, "geometry"]], how="left")
         df_out = df_out[~df_out.index.duplicated()]
         df_out[zidColName].fillna(-1, inplace=True)
-        _df[zidColName] = df_out[zidColName].astype(int)
+        _df = _df.join(df_out[[zidColName]].astype(int))
         return _df
 
     if filterAreas:
@@ -103,7 +105,7 @@ def tessellate(df, tesselation_shp, filterAreas=False, partitions_number=None):
                                                                            latColName,
                                                                            minx, maxx,
                                                                            miny, maxy)
-        df = df.query(query)
+        df = df.query(query).copy()
 
     if partitions_number is not None:
         df = df.repartition(npartitions=partitions_number)
@@ -437,13 +439,224 @@ def haversine_pairwise(X,Y=None):
     
     return distances
 
+# Stops and stays
+def _stopRange(row, interval='1h'):
+    '''
+    Helper function that takes a row with :attr:`mobilkit.dask_schemas.dttColName`
+    and :attr:`mobilkit.dask_schemas.ldtColName` as input and returns the times
+    between the initial and final time. If the end time crosses the interval time bin
+    the result is guaranteed to have two (or more) entries (e.g. with a 1 hour interval,
+    an initial time at 08:34 and a final time at 09:01 we find two steps at 08:34 and 09:34).
+    '''
+    t_i = row[dttColName]
+    t_f = row[ldtColName].ceil(interval) - np.timedelta64(int(1e6))
+    return pd.date_range(t_i, t_f, freq=interval)
 
-def rad_of_gyr(coords):
+
+def _expand_stops_partition(df, freq='1h', explode_stop=False):
+    '''
+    Auxiliary function that takes as input a df with at least the
+    :attr:`mobilkit.dask_schemas.dttColName` and :attr:`mobilkit.dask_schemas.ldtColName` 
+    columns and computes all the times in between spaced by `freq`. The result is
+    written in the :attr:`mobilkit.dask_schemas.stpColName` and possibly exploded if
+    `explode_stop=True`.
+    '''
+    if df.shape[0] == 0:
+        df[stpColName] = []
+    else:
+        df[stpColName] = df.apply(_stopRange, axis=1, interval=freq)
+    if explode_stop:
+        df = df.explode(stpColName)
+    del df[ldtColName]
+    return df
+
+
+def expandStops(df, freq:str='1h', explode_stop:bool=True):
+    '''
+    Given a dataframe containing the single stops of one or more users (as returned by
+    :attr:`mobilkit.spatial.findStops`) it explodes them to be repeated once every `freq`
+    time bin they traverse (if `explode_stop`) or it lists them in the
+    :attr:`mobilkit.dask_schemas.stpColName` column. 
+    
+    Parameters
+    ----------
+    df : dask.datframe
+        A dataframe containing the stops of one or more users (as returned by
+        :attr:`mobilkit.spatial.findStops`).
+    freq : str, optional
+        The time bin to use to replicate/explode the stop. Currently all the valid
+        `freq` arguments to `pandas.date_range` are accepted.
+    explode_stop : bool, optional
+        If `True` the :attr:`mobilkit.dask_schemas.stpColName` column will contain
+        the exploded list of time bins touched by the stop, else the list itself.
+
+    Returns
+    -------
+    exploded_stops_df : dask.datframe
+        The initial dataframe with the additional column :attr:`mobilkit.dask_schemas.stpColName`
+        containing the time bins (or their list, depending on `explode_stop`) touched
+        by the stop.
+    '''
+    return_meta = dict(**df.dtypes)
+    if explode_stop:
+        return_meta[stpColName] = return_meta[dttColName]
+    else:
+        return_meta[stpColName] = object # If explode stops is as dttcolname
+    exploded_stops_df = df.map_partitions(_expand_stops_partition,
+                                            freq=freq,
+                                            explode_stop=explode_stop)
+    return exploded_stops_df
+
+
+def _find_stops(df, custom_stay_locations_kwds=None):
+    '''
+    Auxiliary function to be applied to the per-user slice of a grouped
+    df containing the ping.
+    If not told otherwise, the stay location keywords passed to
+    `skmob.preprocessing.detection` are:
+    - `minutes_for_a_stop=5.0`
+    - `spatial_radius_km=0.2`
+    - `no_data_for_minutes=60*12`
+    - `leaving_time=True`
+    Theleaving datetime of the stop is saved into the :attr:`mobilkit.dask_schemas.ldtColName`
+    column.
+    '''
+    stay_locations_kwds = dict(minutes_for_a_stop=5.0,
+                                       spatial_radius_km=0.2,
+                                       no_data_for_minutes=60*12,
+                                       leaving_time=True)
+    if custom_stay_locations_kwds:
+        stay_locations_kwds.update(custom_stay_locations_kwds)
+
+    from skmob import TrajDataFrame
+    from skmob.preprocessing import detection
+    tdf = TrajDataFrame(df[[latColName, lonColName, uidColName, dttColName]],
+                              latitude=latColName,
+                              longitude=lonColName,
+                              datetime=dttColName,
+                              trajectory_id=None,
+                              user_id=uidColName)
+    
+    stdf = detection.stay_locations(tdf, **stay_locations_kwds)
+    stdf = pd.DataFrame(stdf)    
+    return stdf
+
+
+def findStops(df,
+            tesselation_shp=None,
+            stay_locations_kwds=None,
+            filterAreas=True,
+            ):
+    '''
+    Computes the stops of a group of users using the `scikit-mobility` tools.
+    Note that the `mobilkit[complete]` or `[skmob]` version should be installed to use this tool.
+    
+    Parameters
+    ----------
+    df : dask.dataframe
+        A dataframe containing the raw pings with at least the latitude, longitude and datetime columns.
+    tessellation_shp : str, optional
+        The path to be used to tessellate the stops (if `None`, no tessellation will be performed).
+    stay_locations_kwds : dict, optional
+        The custom keywords to be passed to :attr:`mobilkit.spatial._find_stops`. If not told otherwise,
+        the stay location keywords passed to `skmob.preprocessing.detection` are:
+            - `minutes_for_a_stop=5.0`
+            - `spatial_radius_km=0.2`
+            - `no_data_for_minutes=60*12`
+            - `leaving_time=True`
+    filterAreas : bool, optional
+        Whether or not to filter out stops found outside of the tessellation when tessellating.
+    
+    Returns
+    -------
+    stops_df : dask.dataframe
+        The dataframe with the latitude and longitude of each stop together with its starting time
+        (in the :attr:`mobilkit.dask_schemas.dttColName`) and ending time (saved into the
+        :attr:`mobilkit.dask_schemas.ldtColName` column). If a tessellation file is specified,
+        an additional :attr:`mobilkit.dask_schemas.zidColName` is telling in which grid cell the stop
+        is falling.
+    '''
+    # return_meta = dict(**df_pings_filtered.dtypes)
+    return_meta = dict(**df.dtypes)
+    return_meta = {k: return_meta[k] for k in [latColName, lonColName,
+                                               uidColName, dttColName]}
+    return_meta[ldtColName] = return_meta[dttColName]
+    stops_df = df.groupby(uidColName)\
+                            .apply(_find_stops,
+                                   meta=return_meta,
+                                   custom_stay_locations_kwds=stay_locations_kwds,
+                                   )
+    if tesselation_shp:
+        stops_df, _ = tessellate(stops_df, tesselation_shp, filterAreas=filterAreas)
+    return stops_df
+    
+    
+# Distances and radius of gyration
+def compute_ROG(df, which='both', df_hw_locs=None):
+    meta_out_rog = {'n_pings': np.int64}
+    if which in ['home','both']:
+        meta_out_rog.update({
+        'rog_home': np.float64,
+        'com_home_'+latColName: np.float64,
+        'com_home_'+lonColName: np.float64,})
+    if which in ['total','both']:
+        meta_out_rog.update({
+            'rog_total': np.float64,
+            'com_total_'+latColName: np.float64,
+            'com_total_'+lonColName: np.float64,
+        })
+    df_rog = df.groupby(uidColName)\
+                .apply(groupApplyROG, meta=meta_out_rog,
+                        which=which, df_hw_locs=df_hw_locs)
+    return df_rog
+                
+
+def _user_ROG(g, which='both', df_hw_locs=None):
+    compute = True
+    n_pings = g.shape[0]
+    coords = g[[latColName,lonColName]].values
+    tmp_uid = g[uidColName].iloc[-1]
+    # print(g[uidColName])
+    out_vals = [n_pings]
+    out_cols = ['n_pings']
+    if which in ['home','both']:
+        if tmp_uid in df_hw_locs.index:
+            row_user = df_hw_locs.loc[tmp_uid]
+            center_of_mass = np.array([row_user[latColName+'_home'],
+                                       row_user[lonColName+'_home']]).reshape((1,2))
+            rog = rad_of_gyr(coords, center_of_mass=center_of_mass)
+        else:
+            center_of_mass = np.array([-999., -999.]).reshape((1,2))
+            rog = -1.
+        out_vals.extend([rog,
+                         center_of_mass[0,0],
+                         center_of_mass[0,1],])
+        out_cols.extend(['rog_home',
+                         'com_home_'+latColName,
+                         'com_home_'+lonColName,
+                        ])
+    if which in ['total', 'both']:
+        center_of_mass = np.mean(coords, axis=0, keepdims=True)
+        rog = rad_of_gyr(coords, center_of_mass=center_of_mass)
+        out_vals.extend([rog,
+                         center_of_mass[0,0],
+                         center_of_mass[0,1],])
+        out_cols.extend(['rog_total',
+                         'com_total_'+latColName,
+                         'com_total_'+lonColName,
+                        ])
+    return pd.DataFrame([out_vals], columns=out_cols)
+
+
+def rad_of_gyr(coords: np.array, center_of_mass=None) -> np.array:
     '''
     Parameters
     ----------
     coords : np.array
         a Nx*2 array of (lat,lon) coordinates.
+    center_of_mass : np.array, optional
+        A (1,2) np array containing the latitude and longitude of the center
+        of mass to be used to compute the ROG (for instance, the user's home).
     
     Returns
     -------
@@ -451,14 +664,14 @@ def rad_of_gyr(coords):
         The radius of gyration for the selected coords.
     '''
     
-    com = np.mean(coords, axis=0, keepdims=True)
-    rog_sum = (haversine_pairwise(coords, com)**2.).sum()
+    if center_of_mass is None:
+        center_of_mass = np.mean(coords, axis=0, keepdims=True)
+    rog_sum = (haversine_pairwise(coords, center_of_mass)**2.).sum()
     rog = np.sqrt(rog_sum / max(1,coords.shape[0]))
     
     return rog
     
 
-    
 def total_distance_traveled(coords):
     '''
     Parameters
@@ -469,7 +682,7 @@ def total_distance_traveled(coords):
     Returns
     -------
     total_distance_traveled : float
-        The radius of gyration for the selected coords.
+        The total distance traveled in the dataframe.
     '''
     tot_dist = 0
     for i, j in zip(coords[:-1,:], coords[1:,:]):
