@@ -415,6 +415,22 @@ def meanshift(df, bw=0.01, maxpoints=100, **kwargs):
     cluster_centers = ms.cluster_centers_
     return cluster_centers[most]
 
+def userHomeWorkDistance(r):
+    '''
+    Computes the distance between `lat/lng_home` and `lat/lng_work`
+    for the row of a user.
+
+    Returns
+    -------
+    dist : float
+        None if one of the coords is invalid, the distance in km otherwise.
+    '''
+    if pd.isna(r[lonColName+'_home']) or pd.isna(r[lonColName+'_work']):
+        return None
+    else:
+        home_place = np.array([r[latColName+'_home'], r[lonColName+'_home']]).reshape((1,2))
+        work_place = np.array([r[latColName+'_work'], r[lonColName+'_work']]).reshape((1,2))
+        return haversine_pairwise(home_place, work_place)[0,0]
 
 def haversine_pairwise(X,Y=None):
     '''
@@ -606,7 +622,7 @@ def compute_ROG(df, which='both', df_hw_locs=None):
             'com_total_'+lonColName: np.float64,
         })
     df_rog = df.groupby(uidColName)\
-                .apply(groupApplyROG, meta=meta_out_rog,
+                .apply(_user_ROG, meta=meta_out_rog,
                         which=which, df_hw_locs=df_hw_locs)
     return df_rog
                 
@@ -672,6 +688,35 @@ def rad_of_gyr(coords: np.array, center_of_mass=None) -> np.array:
     return rog
     
 
+def totalUserTravelDistance(df_pings, freq='1d'):
+    '''
+    Computes the total distance traveled (km computed on the straight lines
+    between each point) by a user i each `freq` time bin.
+    
+    Parameters
+    ----------
+    df_pings : dask.DataFrame
+        The dataframe containing at least the :attr:`mobilkit.dask_schemas.uidColName`,
+        :attr:`mobilkit.dask_schemas.latColName`, :attr:`mobilkit.dask_schemas.lonColName`
+        and :attr:`mobilkit.dask_schemas.dttColName`.
+    freq : str, optional
+        The datetime interval to fllor the `dttColName` to (default one day).
+        
+    Returns
+    -------
+    ttd : dask.DataFrame
+        The dataframe containing the `user,tBin` index and a `ttd` column with the total
+        traveled distance (in km) for that user on that day.
+    '''
+    df_pings['tBin'] = df_pings[dttColName].dt.floor(freq)
+    ttd = df_pings[[uidColName,'tBin',latColName,lonColName]]\
+                    .groupby([uidColName,'tBin'])\
+                    .apply(lambda g:
+                               pd.Series({'ttd': total_distance_traveled(g[[latColName,lonColName]].values)}),
+                           meta={'ttd':float})
+    return ttd
+
+
 def total_distance_traveled(coords):
     '''
     Parameters
@@ -692,8 +737,13 @@ def total_distance_traveled(coords):
     
 # POIs tools
 
-def convert_df_crs(df, lat_col="lat", lon_col="lng",
-                   from_crs="EPSG:4326", to_crs="EPSG:6362"):
+def convert_df_crs(df,
+                   lat_col="lat",
+                   lon_col="lng",
+                   from_crs="EPSG:4326",
+                   to_crs="EPSG:6362",
+                   return_gdf=False,
+                   ):
     '''
     Parameters
     ----------
@@ -702,23 +752,35 @@ def convert_df_crs(df, lat_col="lat", lon_col="lng",
     lat_col, lon_col : str
         The names of the columns containing the latitude and longitude of the
         points in `df`.
-    from_crs, to_crs : str
+    from_crs, to_crs : str, optional
         The codes of the original and target projections to use.
+        If `to_crs` is None no reprojection is done.
+    return_gdf : bool, optional
+        If `True` returns the newly created gdf otherwise the original df with
+        two additional columns telling the projected lat and lon.
         
     Returns
     -------
-    df : pd.DataFrame
-        The original data frame with two additional columns named `lat_col + '_proj'`
+    df : pd.DataFrame or gpd.GeoDataFrame
+        If `return_gdf` the df ported to a geodataframe in the `to_crs` projection.
+        Otherwise, the original data frame with two additional columns named `lat_col + '_proj'`
         and `lon_col + '_proj'` containing the original coordinates projected to
         `to_crs`.
     '''
-    gdf = gpd.GeoDataFrame(df.copy(), geometry=gpd.points_from_xy(df[lon_col],df[lat_col]))
-    gdf.set_crs(from_crs, inplace=True)
-    gdf.to_crs(to_crs, inplace=True)
-    df = df.assign(**{
+    gdf = gpd.GeoDataFrame(df.copy(),
+                           geometry=gpd.points_from_xy(df[lon_col],df[lat_col]),
+                           crs=from_crs,
+                           )
+    if to_crs is not None:
+        gdf.to_crs(to_crs, inplace=True)
+
+    if return_gdf:
+        return gdf
+    else:
+        df = df.assign(**{
             lon_col + "_proj": gdf["geometry"].x.values,
             lat_col + "_proj": gdf["geometry"].y.values})
-    return df
+        return df
 
 def distanceHomeUser(g,
                      lon_col=lonColName, lat_col=latColName,

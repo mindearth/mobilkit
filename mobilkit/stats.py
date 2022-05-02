@@ -19,9 +19,12 @@ from dask import array as da
 import dask.bag as db
 
 from mobilkit.dask_schemas import nunique
+from mobilkit.spatial import convert_df_crs, userHomeWorkDistance
+from mobilkit.tools import userHomeWorkTravelTimeOSRM
 
 import numpy as np
 import pandas as pd
+import geopandas as gpd
 import matplotlib.pyplot as plt
 import matplotlib
 from copy import copy
@@ -459,6 +462,404 @@ def _determine_home_work_user(df, force_different: bool=False):
                       lonColName+'_work': work_pings[lonColName],
                       'work_pings': work_pings['n_pings'],
                      })
+
+
+# Functions for spatial statistics
+def userBasedBufferedStat(df_stat, df_user_grid, stat_col,
+                          uid_col=uidColName,
+                          tile_col=zidColName,
+                          explode_col=False,
+                          how='inner',
+                          stats=['min','max','mean','std','count'],
+                         ):
+    '''
+    Given a dataframe containing the per user stat `df_stat` in the `stat_col`
+    and a dataframe containing the users per area as returned from `mk.stats.computeBufferStat`
+    computes the `stats` of the `stat_col` merging the two df on the `tile_col`.
+    
+    Parameters
+    ----------
+    df_stat : pd.DataFrame
+        The dataframe containing at least the `uid_col` and `stat_col`. They can also be in the
+        df's index as it will be reset.
+    df_user_grid : pd.DataFrame
+        A dataframe containing the users per area (in the `uid_col` and `tile_col`)as returned
+        from `mk.stats.computeBufferStat` using passing as `gdf_stat` the home work locations,
+        `lat_name='lat_home',lon_name='lng_home'`, `column=uidColName` and `aggregation=set`. 
+    uid_col, tile_col : str, optional
+        The columns containing the user id and the tile id in the two input dfs.
+    explode_col : bool, optional
+        Whether we need to explode the `stat_col` before merging (for list-like observations).
+    how : str, optional
+        The join method to use between the tile ids in the grid and the df of stats.
+    stats : list or str
+        The stats to be compute at the tile level on the `stat_col` column.
+    
+    Returns
+    -------
+    stats : pd.DataFrame
+        The dataframe containing the tile id as index and with the stats in the
+        `stat_col_{min/max/mean}` format.
+        
+    Examples
+    --------
+    >>> # Compute the per area buffered users based on home location (500m buffer):
+    >>> users_buffered_per_area = mk.stats.computeBufferStat(
+                                    gdf_stat=df_hw_locs_pd.reset_index()[['lat_home','lng_home', uidColName]],
+                                    gdf_grid=gdf_aoi_grid,
+                                    column=uidColName,
+                                    aggregation=set,
+                                    lat_name='lat_home',
+                                    lon_name='lng_home',
+                                    local_EPSG=local_EPSG,
+                                    buffer=500)
+    >>> # Compute the per area total daily traveled distance
+    >>> ttd_daily_user = mk.spatial.totalUserTravelDistance(df_pings, freq='1d')
+    >>> df_out = mk.stats.userBasedBufferedStat(ttd_daily_user,
+                                                users_buffered_per_area,
+                                                stat_col='ttd')
+    >>> df_out.head()
+    tile_ID   |    ttd_min |    ttd_max |   ttd_mean |    ttd_std |  ttd_count |
+    12345     |      2.345 |     12.345 |      5.345 |      3.345 |        125 |
+    
+    '''
+    if explode_col:
+        df_stat = df_stat.explode(stat_col)
+    stats_out = pd.merge(
+            df_user_grid.reset_index().explode(uid_col)[[uid_col,tile_col]],
+            df_stat.reset_index()[[uid_col,stat_col]],
+            on=uid_col,
+            how=how).groupby(tile_col).agg({stat_col: stats})
+    if isinstance(stats, list):
+        stats_out.columns = ["_".join(c) for c in stats_out.columns]
+    return stats_out
+
+def computeBufferStat(gdf_stat, gdf_grid,
+                      column, aggregation,
+                      how='inner',
+                      lat_name='lat',
+                      lon_name='lng',
+                      local_EPSG=None,
+                      buffer=None):
+    '''
+    Computes the statistics contained in a column of a dataframe containing the lat and lon
+    coordinates of points with respect to a `gdf_grid` tessellation, possibly applying local
+    reprojection and buffer on the points. This is equivalent to a KDE with a flat circular kernel of
+    radius `buffer`.
+
+    Parameters
+    ----------
+    gdf_stat, gdf_grid : gpd.GeoDataFrame
+        The geo-dataframes containing the statistics in the `column` column and the tessellation system.
+        They must be in the same reference system and will be projected to `local_EPSG`, if specified.
+        The `gdf_grid` will be dissolved on the :attr:`mobilkit.dask_schemas.zidColName` after the spatial
+        join with the (possibly buffered) `gdf_stat` geometries.
+    column : str
+        The column for which we will compute the statistics.
+    aggregation : str or callable
+        The geopandas string or callable to use on the spatially joined geo-dataframe.
+    how : str, optional
+        The method to perform the spatial join.
+    lat_name, lon_name : str, optional
+        The name of the columns to use as initial coords.
+    local_EPSG : int, optional
+        The code of the local EPSG crs.
+    buffer : float, optional
+        The local map unit in `local_EPSG` to perform the buffer.
+
+    Returns
+    -------
+    buffered_stats : gpd.GeoDataFrame
+        The geodataframe with the aggregated stat.
+    '''
+    if local_EPSG is not None:
+        gdf_local = convert_df_crs(gdf_stat,
+                                    lat_col=lat_name,
+                                    lon_col=lon_name,
+                                    from_crs='EPSG:4326',
+                                    to_crs='EPSG:%d'%local_EPSG,
+                                    return_gdf=True)
+        gdf_grid = gdf_grid.to_crs(local_EPSG)
+    else:
+        gdf_local = gdf_stat.copy(deep=True)
+        
+    stats = _buffer_stat(gdf_local, gdf_grid,
+                         column=column,
+                         aggregation=aggregation,
+                         buffer=buffer)
+    return stats
+
+def _buffer_stat(gdf_stat, gdf_grid,
+                 column, aggregation,
+                 how='inner',
+                 local_EPSG=None,
+                 buffer=None):
+    '''
+    Aux function to compute statistics in a geodataframe with respect to a gdf_grid tessellation.
+
+    Parameters
+    ----------
+    gdf_stat, gdf_grid : gpd.GeoDataFrame
+        The geo-dataframes containing the statistics in the `column` column and the tessellation system.
+        They must be in the same reference system and will be projected to `local_EPSG`, if specified.
+        The `gdf_grid` will be dissolved on the :attr:`mobilkit.dask_schemas.zidColName` after the spatial
+        join with the (possibly buffered) `gdf_stat` geometries.
+    column : str
+        The column for which we will compute the statistics.
+    aggregation : str or callable
+        The geopandas string or callable to use on the spatially joined geo-dataframe.
+    how : str, optional
+        The method to perform the spatial join.
+    local_EPSG : int, optional
+        The code of the local EPSG crs.
+    buffer : float, optional
+        The local map unit in `local_EPSG` to perform the buffer.
+
+    Returns
+    -------
+    buffered_stats : gpd.GeoDataFrame
+        The geodataframe with the aggregated stat.
+    '''
+    if local_EPSG is not None:
+        gdf_stat = gdf_stat.to_crs(local_EPSG)
+        gdf_grid = gdf_grid.to_crs(local_EPSG)
+    if buffer is not None:
+        gdf_stat['geometry'] = gdf_stat.buffer(buffer)
+    
+    buffered_stat = gpd.sjoin(
+                        gdf_grid[[zidColName, 'geometry']],
+                        gdf_stat[['geometry', column]],
+                        how=how,
+                ).dissolve(zidColName, aggfunc=aggregation)
+    return buffered_stat
+
+def computeUserHomeWorkTripTimes(df_hw_locs,
+                                 osrm_url=None,
+                                 direction='both',
+                                 what='duration',
+                                 max_trip_duration_h=4,
+                                 max_trip_distance_km=150):
+    '''
+    **TODO**
+    This is quite slow as it is a serial part, it can be parallelized using a pool or directly
+    mapping in Dask
+    Returns
+    -------
+    time in seconds, distance in meters
+    '''
+    print('Computing straight hw distance...')
+    df_hw_locs['home_work_straight_dist'] = df_hw_locs.apply(userHomeWorkDistance, axis=1)
+    if osrm_url is not None:
+        directions = []
+        if direction in ['hw', 'both']:
+            directions.append('hw')
+        if direction in ['wh', 'both']:
+            directions.append('wh')
+
+        for direction in directions:
+            tmp_str_direction = 'home_work_osrm' if direction == 'hw' else 'work_home_osrm'
+            print('Computing %s OSM %s...' % (direction, what))
+            tmp_res = df_hw_locs.apply(userHomeWorkTravelTimeOSRM,
+                                       axis=1,
+                                       osrm_url=osrm_url,
+                                       direction=direction,
+                                       what=what,
+                                       max_trip_duration_h=max_trip_duration_h,
+                                       max_trip_distance_km=max_trip_distance_km,
+                                    )
+            if what == 'distance':
+                tmp_col = tmp_str_direction + "_" + 'dist'
+                df_hw_locs[tmp_col] = tmp_res
+            elif what == 'duration':
+                tmp_col = tmp_str_direction + "_" + 'time'
+                df_hw_locs[tmp_col] = tmp_res
+            elif what == 'duration,distance':
+                tmp_col = tmp_str_direction + "_" + 'time'
+                df_hw_locs[tmp_col] = tmp_res.apply(lambda t: t[0])
+                tmp_col = tmp_str_direction + "_" + 'dist'
+                df_hw_locs[tmp_col] = tmp_res.apply(lambda t: t[1])
+    return df_hw_locs
+
+
+def _per_user_real_home_work_times(g,
+                              direction='hw',
+                              min_duration_h=.25,
+                              max_duration_h=4.):
+    if direction in ['hw', 'wh']:
+        directions = [direction,]
+    elif direction == 'both':
+        directions = ['hw', 'wh']
+    else:
+        raise RuntimeError('Unknown direction %s in userHomeWorkTimes' % direction)
+    
+    df = g.sort_values(dttColName).copy(deep=True)
+    df['atHome'] = df[zidColName] == df['home_'+zidColName]
+    df['atWork'] = df[zidColName] == df['work_'+zidColName]
+    df = df[df['atHome'] | df['atWork']].copy(deep=True)
+    
+    tmp_fields = {what+'_trips_'+k: []
+                        for k in directions
+                            for what in ['time','speed']}
+    # Straight dist
+    try:
+        tmp_home_work_dist = g.iloc[0]['home_work_straight_dist']
+    except KeyError:
+        pass
+    else:
+        tmp_fields['home_work_straight_dist'] = tmp_home_work_dist
+        
+    # OSRM time
+    try:
+        tmp_home_work_travel = g.iloc[0]['home_work_osrm_time']
+    except KeyError:
+        pass
+    else:
+        tmp_fields['home_work_osrm_time'] = tmp_home_work_travel
+        
+    try:
+        tmp_work_home_travel = g.iloc[0]['work_home_osrm_time']
+    except KeyError:
+        pass
+    else:
+        tmp_fields['work_home_osrm_time'] = tmp_work_home_travel
+    
+    # OSRM dist
+    try:
+        tmp_home_work_osrm_dist = g.iloc[0]['home_work_osrm_dist']
+    except KeyError:
+        pass
+    else:
+        tmp_fields['home_work_osrm_dist'] = tmp_home_work_osrm_dist
+        
+    try:
+        tmp_work_home_osrm_dist = g.iloc[0]['work_home_osrm_dist']
+    except KeyError:
+        pass
+    else:
+        tmp_fields['work_home_osrm_dist'] = tmp_work_home_osrm_dist
+        
+    time_trips = pd.Series(tmp_fields)
+    if df.shape[0] < 2 | df['atHome'].sum() == 0 | df['atHome'].sum():
+        pass
+    else:
+        for direction in directions:
+            if direction == 'hw':
+                colShifted = 'atWork'
+                colReference = 'atHome'
+                df['next_location'] = df['atWork'].shift(-1)
+            elif direction == 'wh':
+                colShifted = 'atHome'
+                colReference = 'atWork'
+            else:
+                raise RuntimeError('Unknown direction %s in userHomeWorkTimes' % direction)
+            df['next_location'] = df[colShifted].shift(-1)
+            df['next_start'] = df[dttColName].shift(-1)
+
+            for _, r in df.iterrows():
+                if r[colReference] == True and r['next_location'] == True:
+                    tmp_duration_h = (r['next_start'] - r['leaving_datetime']).total_seconds() / 3600
+                    if tmp_duration_h >= min_duration_h and tmp_duration_h <= max_duration_h:
+                        time_trips.loc['time_trips_'+direction].append(tmp_duration_h)
+                        time_trips.loc['speed_trips_'+direction].append(tmp_home_work_dist / tmp_duration_h)
+    return time_trips
+
+def userRealHomeWorkTimes(df_stops, direction='both', **kwargs):
+    meta_out = {}
+    if direction in ['hw', 'both']:
+        meta_out['time_trips_hw'] = object
+        meta_out['speed_trips_hw'] = object
+        
+    if direction in ['wh', 'both']:
+        meta_out['time_trips_wh'] = object
+        meta_out['speed_trips_wh'] = object
+
+    cols_to_check = {
+         'home_work_straight_dist': float,
+         'home_work_osrm_time': float,
+         'work_home_osrm_time': float,
+         'home_work_osrm_dist': float,
+         'work_home_osrm_dist': float,
+     }
+    for k, v in cols_to_check.items():
+        if k in df_stops.columns:
+            meta_out[k] = v
+            
+    user_time_trips_hw = df_stops.groupby(uidColName).apply(_per_user_real_home_work_times,
+                                                            meta=meta_out,
+                                                            direction=direction,
+                                                            **kwargs
+                                                           )
+    return user_time_trips_hw
+
+# Buffer the users and compute average and std trip time for each grid cell
+def computeTripTimeStats(df_trip_times,
+                         df_hw_locs,
+                         gdf_grid,
+                         local_EPSG,
+                         buffer_m=500):
+    print('Reprojecting grid...')
+    gdf_grid_local = gdf_grid.to_crs(local_EPSG)
+    print('Reprojecting homes...')
+    gdf_local_homes = convert_df_crs(df_hw_locs.reset_index()[[uidColName,'lat_home','lng_home']],
+                                     lon_col='lng_home',
+                                     lat_col='lat_home',
+                                     to_crs=local_EPSG,
+                                     return_gdf=True,
+                                     )
+
+    print('Buffering and sjoin homes...')
+#     gdf_local_homes['geometry'] = gdf_local_homes.buffer(buffer_m)
+#     # gdf_local_works['geometry'] = gdf_local_works.buffer(buffer_m)
+    
+#     print('Spatial join of buffered homes and grid...')
+#     user_per_home_area = gpd.sjoin(
+#                     gdf_grid_local[[zidColName, 'geometry']],
+#                     gdf_local_homes[['geometry',uidColName]],
+#                 ).dissolve(zidColName, aggfunc=set)
+    user_per_home_area = _buffer_stat(gdf_stat=gdf_local_homes,
+                                      gdf_grid=gdf_grid_local,
+                                      buffer=buffer_m,
+                                      column=uidColName,
+                                      aggregation=set,
+                                      how='inner')
+    
+    print('Computing per area trip duration stats...')
+    cols_to_do = ['time_trips_hw', 'time_trips_wh',
+                'speed_trips_hw', 'speed_trips_wh',
+                'home_work_straight_dist',
+                'home_work_osrm_time',
+                'work_home_osrm_time',
+                'home_work_osrm_dist',
+                'work_home_osrm_dist',
+               ]
+    cols_to_explode = ['time_trips_hw', 'time_trips_wh',
+                       'speed_trips_hw', 'speed_trips_wh']
+    for col in cols_to_do:
+        if col not in df_trip_times.columns:
+            continue
+        for what in ['min','max','avg','std']:
+            user_per_home_area[col+'_'+what] = None
+            
+    for idx, row in user_per_home_area.iterrows():
+        tmp_users = row[uidColName].intersection(df_trip_times.index)
+        if len(tmp_users) == 0:
+            continue
+        for col in cols_to_do:
+            if col not in df_trip_times.columns:
+                continue
+            tmp_vals = df_trip_times.loc[tmp_users][col]
+            if col in cols_to_explode:
+                tmp_vals = tmp_vals.explode()
+            tmp_vals = tmp_vals.values
+            tmp_vals = tmp_vals[~pd.isna(tmp_vals)]
+            if len(tmp_vals) > 0:
+                for what_str, what_op in zip(['min','max','avg','std'],
+                                             [np.min, np.max, np.mean,np.std]):
+                    user_per_home_area.loc[idx,col+'_'+what_str] = what_op(tmp_vals)
+    del user_per_home_area['geometry']
+    del user_per_home_area['index_right']
+    
+    return user_per_home_area
 
 
 def plotUsersHist(users_stats, min_pings=5, min_days=5, days="active", cmap='YlGnBu', xbins=100, ybins=20):
