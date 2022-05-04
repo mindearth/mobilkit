@@ -246,7 +246,7 @@ def computeTemporalProfile(df_tot, timeBin,
                            sliceName=None,
                            selected_areas=None,
                            areasName=None,
-                           split_out=100,
+                           split_out=10,
                            ):
     '''Function to compute the normalized profiles of areas.
     The idea is to have a dataframe with the count of users and pings
@@ -310,6 +310,9 @@ def computeTemporalProfile(df_tot, timeBin,
         Use :attr:`mobilkit.spatial.selecteAreasFromBounds` to select areas from given bounds.
     areasName : str, optional
         The name that will be saved in `areaName` column, if given.
+    split_out : int, optional
+        The number of partitions to split the results in (for large number of areas and time bins).
+        The default value of 10 should work in most of the cases.
 
     Returns
     -------

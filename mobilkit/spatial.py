@@ -688,7 +688,7 @@ def rad_of_gyr(coords: np.array, center_of_mass=None) -> np.array:
     return rog
     
 
-def totalUserTravelDistance(df_pings, freq='1d'):
+def totalUserTravelDistance(df_pings, doROG=False, freq='1d'):
     '''
     Computes the total distance traveled (km computed on the straight lines
     between each point) by a user i each `freq` time bin.
@@ -699,21 +699,37 @@ def totalUserTravelDistance(df_pings, freq='1d'):
         The dataframe containing at least the :attr:`mobilkit.dask_schemas.uidColName`,
         :attr:`mobilkit.dask_schemas.latColName`, :attr:`mobilkit.dask_schemas.lonColName`
         and :attr:`mobilkit.dask_schemas.dttColName`.
+    doROG : bool, optional
+        If `True` also computes the ROG on the pings of that day.
     freq : str, optional
         The datetime interval to fllor the `dttColName` to (default one day).
         
     Returns
     -------
     ttd : dask.DataFrame
-        The dataframe containing the `user,tBin` index and a `ttd` column with the total
-        traveled distance (in km) for that user on that day.
+        The dataframe containing the `user,tBin` index and:
+        - `ttd` column with the total traveled distance (in km) for that user on that time bin. 
+        - `nPings` the number of pings for that user on that time bin;
+        - if `doROG` a column `rog` with the daily ROG using as center of mass the mean point
+          of that time bin's coordinates.
     '''
     df_pings['tBin'] = df_pings[dttColName].dt.floor(freq)
+    if doROG:
+        myApply = lambda g: pd.Series({
+                                   'ttd': total_distance_traveled(g[[latColName,lonColName]].values),
+                                   'rog': rad_of_gyr(g[[latColName,lonColName]].values),
+                                   'nPings': g.shape[0],        
+                                })
+        myMeta = {'ttd':float, 'rog': float, 'nPings': int}
+    else:
+        myApply = lambda g: pd.Series({
+                                   'ttd': total_distance_traveled(g[[latColName,lonColName]].values),
+                                   'nPings': g.shape[0],        
+                                })
+        myMeta = {'ttd':float, 'nPings': int}
     ttd = df_pings[[uidColName,'tBin',latColName,lonColName]]\
                     .groupby([uidColName,'tBin'])\
-                    .apply(lambda g:
-                               pd.Series({'ttd': total_distance_traveled(g[[latColName,lonColName]].values)}),
-                           meta={'ttd':float})
+                    .apply(myApply, meta=myMeta)
     return ttd
 
 
