@@ -42,6 +42,12 @@ dttColName = "datetime"
 zidColName = "tile_ID"
 stpColName = 'stops'
 ldtColName = 'leaving_datetime'
+durColName = 'duration'
+medLatColName = latColName + '_medoid'
+medLonColName = lonColName + '_medoid'
+radLonColName = lonColName + '_RAD_'
+radLatColName = latColName + '_RAD_'
+locColName = "loc_id"
 
 
 eventLineRAW = [

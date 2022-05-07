@@ -270,6 +270,7 @@ def compute_datetime_col(df, selected_tz):
                         .dt.tz_localize("UTC")\
                         .dt.tz_convert(selected_tz)\
                         .dt.tz_localize(None)
+        df[dttColName] = df[dttColName].astype('datetime64[s]')
 
     return df
 

@@ -31,6 +31,7 @@ from scipy.spatial import Voronoi
 import shapely
 from sklearn import cluster
 from sklearn.metrics.pairwise import haversine_distances
+from sklearn.cluster import DBSCAN
 
 from mobilkit.dask_schemas import (
     accColName,
@@ -42,6 +43,12 @@ from mobilkit.dask_schemas import (
     zidColName,
     stpColName,
     ldtColName,
+    medLatColName,
+    medLonColName,
+    locColName,
+    radLatColName,
+    radLonColName,
+    durColName,
 )
 from mobilkit.tools import computeGDFbounds
 
@@ -53,7 +60,12 @@ from sklearn.neighbors import KDTree
 from scipy.spatial.distance import euclidean
 
 
-def tessellate(df, tesselation_shp, filterAreas=False, partitions_number=None):
+def tessellate(df, tesselation_shp,
+               filterAreas=False,
+               partitions_number=None,
+               latCol=latColName,
+               lonCol=lonColName,
+               ):
     '''Function to assign to each point a given area index.
 
     Parameters
@@ -66,6 +78,8 @@ def tessellate(df, tesselation_shp, filterAreas=False, partitions_number=None):
         If tesselation is specified, keeps only the points within the specified shapofile.
     partitions_number : int, optional
         The batch size of the geopandas sjoin function to be applied. Leave it as is unless you know what you're doing.
+    latCol, lonCol : str, optional
+        The names of the columns containing the latitude and longitude coordinates.
 
     Returns
     -------
@@ -81,9 +95,9 @@ def tessellate(df, tesselation_shp, filterAreas=False, partitions_number=None):
     
     # This is the pipeline, it basically combines all the steps and write out the info
     def localAssign(_df):
-        tmp_gdf = gpd.GeoDataFrame(_df[[latColName]],
-                               geometry=gpd.points_from_xy(_df[lonColName],
-                                                            _df[latColName]))
+        tmp_gdf = gpd.GeoDataFrame(_df[[latCol]],
+                               geometry=gpd.points_from_xy(_df[lonCol],
+                                                            _df[latCol]))
         tmp_gdf.crs = zones_gdf.crs
         df_out = gpd.sjoin(tmp_gdf[["geometry"]],
                             zones_gdf[[zidColName, "geometry"]], how="left")
@@ -101,8 +115,8 @@ def tessellate(df, tesselation_shp, filterAreas=False, partitions_number=None):
             bounds['miny'],
             bounds['maxy'],
         )
-        query = '{0} >= {2} & {0} <= {3} & {1} >= {4} & {1} <= {5}'.format(lonColName,
-                                                                           latColName,
+        query = '{0} >= {2} & {0} <= {3} & {1} >= {4} & {1} <= {5}'.format(lonCol,
+                                                                           latCol,
                                                                            minx, maxx,
                                                                            miny, maxy)
         df = df.query(query).copy()
@@ -432,26 +446,33 @@ def userHomeWorkDistance(r):
         work_place = np.array([r[latColName+'_work'], r[lonColName+'_work']]).reshape((1,2))
         return haversine_pairwise(home_place, work_place)[0,0]
 
-def haversine_pairwise(X,Y=None):
+def haversine_pairwise(X,
+                       Y=None,
+                       isRadians=False):
     '''
     Parameters
     ----------
     X, Y : np.array
         a Nx * 2 and Ny*2 arrays of (lat,lon) coordinates.
+        If `Y` is `None` it will be assigned to `X` (computes the matrix of distances of `X` items).
+    isRadians : bool, optional
+        Whether the supplied coordinates are already in radians. If not they will be automatically converted.
     
     Returns
     -------
     distances : np.array
         a Nx*Ny matrix of distances in kilometers
     '''
-    X = np.radians(X)
+    if not isRadians:
+        X = np.radians(X)
     if Y is None:
         Y = X
     else:
-        Y = np.radians(Y)
+        if not isRadians:
+            Y = np.radians(Y)
         
     distances = haversine_distances(X, Y)
-    distances *= 6371000/1000 # multiply by Earth radius to get kilometers
+    distances *= 6372.795 # multiply by Earth radius in km to get kilometers
     
     return distances
 
@@ -586,11 +607,12 @@ def findStops(df,
     Returns
     -------
     stops_df : dask.dataframe
-        The dataframe with the latitude and longitude of each stop together with its starting time
-        (in the :attr:`mobilkit.dask_schemas.dttColName`) and ending time (saved into the
-        :attr:`mobilkit.dask_schemas.ldtColName` column). If a tessellation file is specified,
-        an additional :attr:`mobilkit.dask_schemas.zidColName` is telling in which grid cell the stop
-        is falling.
+        The dataframe with the latitude and longitude of each stop together with:
+        - its starting time (in the :attr:`mobilkit.dask_schemas.dttColName`)
+        - its ending time (saved into the :attr:`mobilkit.dask_schemas.ldtColName` column).
+        - the duration of the stop in seconds in the :attr:`mobilkit.dask_schemas.durColName` column.
+        - if a tessellation file is specified, an additional :attr:`mobilkit.dask_schemas.zidColName`
+          is telling in which grid cell the stop is falling.
     '''
     # return_meta = dict(**df_pings_filtered.dtypes)
     return_meta = dict(**df.dtypes)
@@ -602,11 +624,274 @@ def findStops(df,
                                    meta=return_meta,
                                    custom_stay_locations_kwds=stay_locations_kwds,
                                    )
+    stops_df[durColName] = (stops_df[ldtColName]
+                             - stops_df[dttColName]).dt.total_seconds()
     if tesselation_shp:
         stops_df, _ = tessellate(stops_df, tesselation_shp, filterAreas=filterAreas)
     return stops_df
+
+def computeUsersLocations(stops_df,
+                          method='dbscan',
+                          link_dist=150,
+                          min_stops_count=2,
+                          return_locations=True,
+                         ):
+    '''
+    TODO DOC
+    '''
+    out_meta = stops_df.dtypes
+    out_meta = out_meta.to_dict()
+    out_meta[locColName] = int
+    out_meta[medLonColName] = float
+    out_meta[medLatColName] = float
     
+    if method == 'dbscan':
+        stops_locs_df = stops_df.groupby(uidColName)\
+                            .apply(_find_user_locations_DBSCAN,
+                                   db_eps=link_dist,
+                                   db_min_count=min_stops_count,
+                                   meta=out_meta,
+                            ).reset_index()
+    elif method == 'infostop':
+        try:
+            import infostop
+        except ModuleNotFoundError:
+            raise RuntimeError('Module infostop not installed, please intall it with `pip install mobilkit[locations]`')
+        # raise RuntimeError('Location detection method %s TODO!' % method)
+        stops_locs_df = stops_df.groupby(uidColName)\
+                            .apply(_find_user_locations_INFOSTOP,
+                                   label_singleton=min_stops_count==1,
+                                   meta=out_meta,
+                            ).reset_index()
+    else:
+        raise RuntimeError('Location detection method %s not implemented!' % method)
     
+    if return_locations:
+        locs_users_df = stops_locs_df.groupby([uidColName,locColName])\
+                                .agg({
+                                    medLatColName: 'first',
+                                    medLonColName: 'first',
+                                    durColName: 'sum',
+                                })
+        return stops_locs_df, locs_users_df
+    else:
+        return stops_locs_df
+
+# Locations dbscan
+def _find_user_locations_DBSCAN(df_stops,
+                                db_eps=100.,
+                                db_min_count=1,
+                                add_db_kws={},
+                                latColName=latColName,
+                                lonColName=lonColName,
+                                returnLocs=False,
+                               ):
+    '''
+    Computes the locations of a single user whose stops are in `df_stops`
+    using the DBscan algorithm.
+    
+    Parameters
+    ----------
+    df : dask.DataFrame or pd.DataFrame
+        The dataframe with at least the `latColName` and `lonColName`.
+    db_eps : float, optional
+        The distance, in meters, to link two stops in a cluster.
+    db_min_count : int, optional
+        The minimum count of neighbors to become core in the DBscan algorithm.
+    add_db_kws : dict, optional
+        Default keyworkds, besides `eps` and `min_count` are:
+        - metric="haversine",
+        - algorithm="ball_tree"
+    latColName, lonColName : str, optional
+        The columns of `df` containing the latitude and longitude.
+    returnLocs : bool, optional
+        If True returns the stops annotated with the
+        - :attr:`mobilkit.dask_schemas.medLatColName`
+        - :attr:`mobilkit.dask_schemas.medLonColName`
+        - :attr:`mobilkit.dask_schemas.locColName`
+        and a df with the unique locations of the user, otherwise
+        only the annotated stops dataframe.
+        
+    Returns
+    -------
+    stops_df, user_locs : pd.Series
+        A series with columns :attr:`mobilkit.dask_schemas.medLatColName` and
+        :attr:`mobilkit.dask_schemas.medLonColName` containing the latitude and
+        longitude of the medoid.
+    '''
+    db_kws = dict(
+        metric="haversine",
+        algorithm="ball_tree"
+    )
+    db_kws.update(add_db_kws)
+    
+    if df_stops.shape[0] > 0:
+        df_stops[radLonColName] = np.radians(df_stops[lonColName])
+        df_stops[radLatColName] = np.radians(df_stops[latColName])
+
+        EARTH_RADIUS = 6372.795 * 1000
+        eps = db_eps / EARTH_RADIUS
+        
+        DB_model = DBSCAN(eps=eps,
+                          min_samples=db_min_count,
+                          **db_kws)
+        labels = DB_model.fit_predict(df_stops[[radLatColName, radLonColName]].values)
+        del df_stops[radLatColName], df_stops[radLonColName]
+        df_stops[locColName] = labels
+        
+        # Computing Clusters
+        clust_med = df_stops.groupby(locColName).apply(points_to_medoid)
+        df_stops[medLonColName] = df_stops.apply(lambda c:
+                                                 clust_med.loc[c[locColName],medLonColName]
+                                                     if c[locColName] >= 0
+                                                         else c[lonColName],
+                                                 axis=1)
+        df_stops[medLatColName] = df_stops.apply(lambda c:
+                                                 clust_med.loc[c[locColName],medLatColName]
+                                                     if c[locColName] >= 0
+                                                         else c[latColName],
+                                                 axis=1)
+    else:
+        # No points
+        clust_med = None
+        labels = []
+        lat_medoid = []
+        lon_medoid = []
+        df_stops[locColName] = labels
+        df_stops[medLonColName] = lon_medoid
+        df_stops[medLatColName] = lat_medoid
+    if returnLocs:
+        return df_stops, clust_med
+    else:
+        return df_stops
+
+
+def _find_user_locations_INFOSTOP(df_stops,
+                                r2=100.,
+                                label_singleton=False,
+                                add_infostop_kws={},
+                                latColName=latColName,
+                                lonColName=lonColName,
+                                returnLocs=False,
+                               ):
+    '''
+    Computes the locations of a single user whose stops are in `df_stops`
+    using the infostop algorithm on the direct user trace.
+    
+    # TODO merge this and the dbscan function in a unique function as only the labelling changes
+    Parameters
+    ----------
+    df : dask.DataFrame or pd.DataFrame
+        The dataframe with at least the `latColName` and `lonColName`.
+    db_eps : float, optional
+        The distance, in meters, to link two stops in a cluster.
+    db_min_count : int, optional
+        The minimum count of neighbors to become core in the DBscan algorithm.
+    add_db_kws : dict, optional
+        Default keyworkds, besides `eps` and `min_count` are:
+        - metric="haversine",
+        - algorithm="ball_tree"
+    latColName, lonColName : str, optional
+        The columns of `df` containing the latitude and longitude.
+    returnLocs : bool, optional
+        If True returns the stops annotated with the
+        - :attr:`mobilkit.dask_schemas.medLatColName`
+        - :attr:`mobilkit.dask_schemas.medLonColName`
+        - :attr:`mobilkit.dask_schemas.locColName`
+        and a df with the unique locations of the user, otherwise
+        only the annotated stops dataframe.
+        
+    Returns
+    -------
+    stops_df, user_locs : pd.Series
+        A series with columns :attr:`mobilkit.dask_schemas.medLatColName` and
+        :attr:`mobilkit.dask_schemas.medLonColName` containing the latitude and
+        longitude of the medoid.
+    '''
+    from infostop import SpatialInfomap
+
+    is_kws = dict()
+    is_kws.update(add_infostop_kws)
+    
+    if df_stops.shape[0] > 0:
+        IS_model = SpatialInfomapSpatialInfomap(r2=r2, label_singleton=label_singleton)
+        labels = IS_model.fit_predict(df_stops[[latColName, lonColName]].values)
+        df_stops[locColName] = labels
+        
+        # Computing Clusters
+        clust_med = df_stops.groupby(locColName).apply(points_to_medoid)
+        df_stops[medLonColName] = df_stops.apply(lambda c:
+                                                 clust_med.loc[c[locColName],medLonColName]
+                                                     if c[locColName] >= 0
+                                                         else c[lonColName],
+                                                 axis=1)
+        df_stops[medLatColName] = df_stops.apply(lambda c:
+                                                 clust_med.loc[c[locColName],medLatColName]
+                                                     if c[locColName] >= 0
+                                                         else c[latColName],
+                                                 axis=1)
+    else:
+        # No points
+        clust_med = None
+        labels = []
+        lat_medoid = []
+        lon_medoid = []
+        df_stops[locColName] = labels
+        df_stops[medLonColName] = lon_medoid
+        df_stops[medLatColName] = lat_medoid
+    if returnLocs:
+        return df_stops, clust_med
+    else:
+        return df_stops 
+
+def points_to_medoid(df,
+                     latColName=latColName,
+                     lonColName=lonColName,
+                    ):
+    '''
+    Returns the pd.Series containing the latitude and longitude of the medoid for
+    the current df.
+    
+    Parameters
+    ----------
+    df : dask.DataFrame or pd.DataFrame
+        The dataframe with at least the `latColName` and `lonColName`.
+    latColName, lonColName : str, optional
+        The columns of `df` containing the latitude and longitude.
+        
+    Returns
+    -------
+    medoid : pd.Series
+        A series with columns :attr:`mobilkit.dask_schemas.medLatColName` and
+        :attr:`mobilkit.dask_schemas.medLonColName` containing the latitude and
+        longitude of the medoid.
+    '''
+    tmp_latlon = df[[latColName, lonColName]].values
+    dist_matrix = haversine_pairwise(tmp_latlon)
+    medoid_index = compute_medoid_index(dist_matrix)
+    return pd.Series({
+        medLatColName: df[latColName].iloc[medoid_index],
+        medLonColName: df[lonColName].iloc[medoid_index],
+    })
+
+def compute_medoid_index(distM):
+    '''
+    Returns the row index of the necessarily symmetric matrix that
+    minimizes the sum of distances to all the other points.
+
+    Parameters
+    ----------
+    distM : np.array
+        The distances matrix.
+
+    Returns
+    -------
+    index : int
+        The row (column) index of the medoid.
+
+    '''
+    return np.argmin(np.sum(distM, axis=0))
+
 # Distances and radius of gyration
 def compute_ROG(df, which='both', df_hw_locs=None):
     meta_out_rog = {'n_pings': np.int64}

@@ -19,7 +19,7 @@ from dask import array as da
 import dask.bag as db
 
 from mobilkit.dask_schemas import nunique
-from mobilkit.spatial import convert_df_crs, userHomeWorkDistance
+from mobilkit.spatial import convert_df_crs, userHomeWorkDistance, haversine_pairwise
 from mobilkit.tools import userHomeWorkTravelTimeOSRM
 
 import numpy as np
@@ -37,7 +37,12 @@ from mobilkit.dask_schemas import (
     uidColName,
     utcColName,
     dttColName,
+    ldtColName,
+    durColName,
     zidColName,
+    medLatColName,
+    medLonColName,
+    locColName,
 )
 
 def userStats(df):
@@ -184,10 +189,430 @@ def filterUsers(df, dfStats=None, minPings=1, minDaysSpanned=1, minDaysActive=1,
 
     return df_out, dfStats, valid_users_set
 
+'''
+There are two possible approaches to the home computation
+
+The one here leverages on stops and/or locations.
+
+Another one is below, and uses the raw pings and the tessellated areas only.
+'''
+
+def stopsToHomeWorkStats(df_stops,
+                         home_hours=(21,7),
+                         work_hours=(9,17),
+                         work_days=(0,1,2,3,4),
+                         force_different=False,
+                         ignore_dynamical=True,
+                         min_hw_distance_km=.0,
+                         min_home_delta_count=0,
+                         min_home_delta_duration=0,
+                         min_work_delta_count=0,
+                         min_work_delta_duration=0,
+                         min_home_days=0,
+                         min_work_days=0,
+                         min_home_hours=0,
+                         min_work_hours=0):
+    '''
+    Computes the home and work time stats for each user and location (tile).
+
+    Parameters
+    ----------
+    df_stop_locs_usr : dask.DataFrame or pd.DataFrame
+        The stops of a user as returned by locations or stops TODO;
+    home_hours, work_hours : tuple, optional
+        TODO
+    work_days : tuple
+        TODO
+    force_different : bool, optional
+        TODO
+    ignore_dynamical : bool, optional
+        TODO
+    min_hw_distance_km : float, optional
+        TODO
+    min_home_delta_count, min_home_delta_duration,
+    min_work_delta_count, min_work_delta_duration : float, optional
+        TODO
+    min_home_days, min_work_days,
+    min_home_hours, min_work_hours :  int, optional
+        TODO
+    latCol, lonCol, locCol : str, optional
+        TODO
+        
+    Returns
+    -------
+    df_stats : pd.DataFrame
+        A dataframe with the columns:
+        - `uid` the user id
+        - 'loc_id' or 'tile_ID' the location/tile id 0-based;
+        - 'lat_medoid','lng_medoid' or 'lat', 'lng' the average coordinates of the stops
+          seen within that location/tile;
+        - '{home,work}_{day/hour}_count' the number of unique days (hours) when the user has
+          been seen as active in the location (tile) at home (work) hours;
+       - '{home,work}_per_hour_{count,duration}' the list containing, for each hour in the home (work)
+         hours, the number of visits (duration in seconds) spent at the location/tile;
+       - '{home,work}_{count,duration}' the total number of visits (seconds duration) spent at this
+         location/tile;
+       - 'tot_seen_{home,work}_{hours,days}' the total number of days and hours where the user has been
+         active during home (work) hours during the valid stops;
+       - 'tot_seen_{hours,days}' the total number of days and hours where the user has been
+         active during the valid stops, both in home and workj period;
+       - 'tot_stop_count', 'tot_stop_time' the total number and duration (in seconds) of the user's
+         stops;
+       - 'frac_{home,work}_{count,duration}' the fraction of stops (duration) spent in this tile/location
+         during home (work) hours;
+       - '{home,work}_delta_{count,duration}' the fraction of hours in the home (work) range at which
+         the given tile/location was the most visited in terms of stops (duration).
+       - 'isHome', 'isWork' the flag telling whsther the location is home or work (or potentially both,
+         if `force_different` is False).
+    '''
+    
+    # Determines if we have a stops or locations dataframe
+    if medLonColName in df_stops.columns and locColName in df_stops.columns:
+        latCol = medLatColName
+        lonCol = medLonColName
+        locCol = locColName
+    elif lonColName in df_stops.columns and zidColName in df_stops.columns:
+        latCol = latColName
+        lonCol = lonColName
+        locCol = zidColName
+        
+    out_meta = {
+        # uidColName: str,
+        # locCol: int, 
+        latCol: float,
+        lonCol: float,
+        'home_day_count': int,
+        'home_hour_count': int,
+        'home_per_hour_count': object,
+        'home_per_hour_duration': object,
+        'work_day_count': int,
+        'work_hour_count': int,
+        'work_per_hour_count': object,
+        'work_per_hour_duration': object,
+        'home_count': int,
+        'work_count': int,
+        'home_duration': float,
+        'work_duration': float,
+        'tot_seen_home_hours': int,
+        'tot_seen_home_days': int,
+        'tot_seen_work_hours': int,
+        'tot_seen_work_days': int,
+        'tot_seen_hours': int,
+        'tot_seen_days': int,
+        'tot_stop_count': int,
+        'tot_stop_time': float,
+        'frac_home_count': float,
+        'frac_work_count': float,
+        'frac_home_duration': float,
+        'frac_work_duration': float,
+        'home_delta_count': float,
+        'work_delta_count': float,
+        'home_delta_duration': float,
+        'work_delta_duration': float,
+        'isHome': bool,
+        'isWork': bool
+    }
+        
+    df_stats = df_stops.groupby(uidColName)\
+                  .apply(_compute_usr_hw_stats_locations,
+                        home_hours=home_hours,
+                        work_hours=work_hours,
+                        work_days=work_days,
+                        force_different=force_different,
+                        ignore_dynamical=ignore_dynamical,
+                        min_hw_distance_km=min_hw_distance_km,
+                        min_home_delta_count=min_home_delta_count,
+                        min_home_delta_duration=min_home_delta_duration,
+                        min_work_delta_count=min_work_delta_count,
+                        min_work_delta_duration=min_work_delta_duration,
+                        min_home_days=min_home_days,
+                        min_work_days=min_work_days,
+                        min_home_hours=min_home_hours,
+                        min_work_hours=min_work_hours,
+                        latCol=latCol,
+                        lonCol=lonCol,
+                        locCol=locCol,
+                        meta=out_meta,
+                    ).reset_index()
+    
+    return df_stats
+
+def _compute_usr_hw_stats_locations(df_stop_locs_usr,
+                                    home_hours=(21,7),
+                                    work_hours=(9,17),
+                                    work_days=(0,1,2,3,4),
+                                    force_different=False,
+                                    ignore_dynamical=True,
+                                    min_hw_distance_km=.0,
+                                    min_home_delta_count=0,
+                                    min_home_delta_duration=0,
+                                    min_work_delta_count=0,
+                                    min_work_delta_duration=0,
+                                    min_home_days=0,
+                                    min_work_days=0,
+                                    min_home_hours=0,
+                                    min_work_hours=0,
+                                    latCol=medLatColName,
+                                    lonCol=medLonColName,
+                                    locCol=locColName,
+                                   ):
+    '''
+    Helper function to compute home and work locations from stops with or without
+    locations annotations.
+
+    Parameters
+    ----------
+    df_stop_locs_usr : dask.DataFrame or pd.DataFrame
+        The stops of a user as returned by locations or stops TODO;
+    home_hours, work_hours : tuple, optional
+        TODO
+    work_days : tuple
+        TODO
+    force_different : bool, optional
+        TODO
+    ignore_dynamical : bool, optional
+        TODO
+    min_hw_distance_km : float, optional
+        TODO
+    min_home_delta_count, min_home_delta_duration,
+    min_work_delta_count, min_work_delta_duration : float, optional
+        TODO
+    min_home_days, min_work_days,
+    min_home_hours, min_work_hours :  int, optional
+        TODO
+    latCol, lonCol, locCol : str, optional
+        TODO
+        
+    Returns
+    -------
+    df_stats : pd.DataFrame
+        A dataframe with the columns:
+        - 'loc_id' or 'tile_ID' the location/tile id 0-based;
+        - 'lat_medoid','lng_medoid' or 'lat', 'lng' the average coordinates of the stops
+          seen within that location/tile;
+        - '{home,work}_{day/hour}_count' the number of unique days (hours) when the user has
+          been seen as active in the location (tile) at home (work) hours;
+       - '{home,work}_per_hour_{count,duration}' the list containing, for each hour in the home (work)
+         hours, the number of visits (duration in seconds) spent at the location/tile;
+       - '{home,work}_{count,duration}' the total number of visits (seconds duration) spent at this
+         location/tile;
+       - 'tot_seen_{home,work}_{hours,days}' the total number of days and hours where the user has been
+         active during home (work) hours during the valid stops;
+       - 'tot_seen_{hours,days}' the total number of days and hours where the user has been
+         active during the valid stops, both in home and workj period;
+       - 'tot_stop_count', 'tot_stop_time' the total number and duration (in seconds) of the user's
+         stops;
+       - 'frac_{home,work}_{count,duration}' the fraction of stops (duration) spent in this tile/location
+         during home (work) hours;
+       - '{home,work}_delta_{count,duration}' the fraction of hours in the home (work) range at which
+         the given tile/location was the most visited in terms of stops (duration).
+       - 'isHome', 'isWork' the flag telling whsther the location is home or work (or potentially both,
+         if `force_different` is False).
+    '''
+    # Prepare the containers of results:
+    # - I compute the hours in home and work ranges
+    reverseHomeHours = home_hours[0] > home_hours [1]
+    reverseWorkHours = work_hours[0] > work_hours [1]
+    # - I prepare the sets where to save the seend days and hours
+    #   in the day, night and total case
+    total_seen_days = set()
+    total_seen_hours = set()
+    total_seen_home_days = set()
+    total_seen_home_hours = set()
+    total_seen_work_days = set()
+    total_seen_work_hours = set()
+    # - The lists containing the int hours and counter to be populated
+    if reverseHomeHours:
+        home_hours_list = [h%24 for h in range(
+                                    int(np.floor(home_hours[0])),
+                                    int(np.ceil(home_hours[1])+24.))]
+    else:
+        home_hours_list = [h%24 for h in range(
+                                    int(np.floor(home_hours[0])),
+                                    int(np.ceil(home_hours[1])))]
+    if reverseWorkHours:
+        work_hours_list = [h%24 for h in range(
+                                    int(np.floor(work_hours[0])),
+                                    int(np.ceil(work_hours[1])+24.))]
+    else:
+        work_hours_list = [h%24 for h in range(
+                                    int(np.floor(work_hours[0])),
+                                    int(np.ceil(work_hours[1])))]
+    # # Determines if we have a stops or locations dataframe
+    # if medLonColName in df_stop_locs_usr.columns and locColName in df_stop_locs_usr.columns:
+    #     latCol = medLatColName
+    #     lonCol = medLonColName
+    #     locCol = locColName
+    # elif lonColName in df_stop_locs_usr.columns and zidColName in df_stop_locs_usr.columns:
+    #     latCol = latColName
+    #     lonCol = lonColName
+    #     locCol = zidColName
+    # If ignoring the non assigned locations, we prune them here
+    if ignore_dynamical:
+        df_stop_locs_usr = df_stop_locs_usr.query(f'{locCol} >= 0')
+        
+    if df_stop_locs_usr.shape[0] == 0:
+        return None
+    
+    # Prepare the dictionary for each location
+    locs_stats = {k: {
+            locCol: k,
+            latCol: latlon[latCol],
+            lonCol: latlon[lonCol],
+            'home_day_count': set(),
+            'home_hour_count': set(),
+            'home_per_hour_count': np.array([0 for _ in home_hours_list]),
+            'home_per_hour_duration': np.array([.0 for _ in home_hours_list]),
+            'work_day_count': set(),
+            'work_hour_count': set(),
+            'work_per_hour_count': np.array([0 for _ in work_hours_list]),
+            'work_per_hour_duration': np.array([.0 for _ in work_hours_list]),
+            }
+        for k, latlon in df_stop_locs_usr.groupby(locCol)[[latCol,lonCol]].mean().iterrows()}
+    # Cycle over the stops to populate the duration and count of visits:
+    for _, stp_loc in df_stop_locs_usr.iterrows():
+        # - Extract location id and make reference to tmp target dict
+        tmp_loc = stp_loc[locCol]
+        tmp_loc_dict = locs_stats[tmp_loc]
+        last_hour = None
+        for t in pd.date_range(stp_loc[dttColName], stp_loc[ldtColName], freq='1min'):
+            # Cycle over all the minutes to:
+            # - compute the uniuque hour and day identifiers, the float/int hour and the dow
+            tmp_unique_h = t.strftime('%Y%m%d%H')
+            tmp_unique_d = tmp_unique_h[:-2]
+            total_seen_hours.add(tmp_unique_h)
+            total_seen_days.add(tmp_unique_d)
+            tmp_h = t.hour + t.minute/60.
+            tmp_h_int = t.hour
+            tmp_dow = t.dayofweek
+            # Check if hour is in home range and, if new hour, add it to the set of home
+            # hours days
+            isHome = False
+            if reverseHomeHours:
+                if not home_hours[1] <= tmp_h < home_hours[0]:
+                    isHome = True
+            elif home_hours[0] <= tmp_h < home_hours[1]:
+                isHome = True
+            if isHome:
+                # If home, append seen hour and day to the location's and total sets 
+                tmp_loc_dict['home_day_count'].add(tmp_unique_d)
+                tmp_loc_dict['home_hour_count'].add(tmp_unique_h)
+                total_seen_home_hours.add(tmp_unique_h)
+                total_seen_home_days.add(tmp_unique_d)
+                # Also add one to the visits if this is a new hour and 60 secs to the
+                # duration in the corresponding hour's list item
+                home_hour_index = home_hours_list.index(tmp_h_int)
+                if last_hour != tmp_h_int:
+                    tmp_loc_dict['home_per_hour_count'][home_hour_index] += 1
+                tmp_loc_dict['home_per_hour_duration'][home_hour_index] += 60
+            elif tmp_dow in work_days:
+                # Enter the work if we're in the right days and repeat the same logic
+                # of home
+                isWork = False
+                if reverseWorkHours:
+                    if not work_hours[1] <= tmp_h < work_hours[0]:
+                        isWork = True
+                elif work_hours[0] <= tmp_h < work_hours[1]:
+                    isWork = True
+                if isWork:
+                    tmp_loc_dict['work_day_count'].add(tmp_unique_d)
+                    tmp_loc_dict['work_hour_count'].add(tmp_unique_h)
+                    total_seen_work_hours.add(tmp_unique_h)
+                    total_seen_work_days.add(tmp_unique_d)
+                    work_hour_index = work_hours_list.index(tmp_h_int)
+                    if last_hour != tmp_h_int:
+                        tmp_loc_dict['work_per_hour_count'][work_hour_index] += 1
+                    tmp_loc_dict['work_per_hour_duration'][work_hour_index] += 60
+            # Update last hour
+            last_hour = tmp_h_int
+    # At the end of the cycle transorm the sets and counter to len and sums
+    for k, v in locs_stats.items():
+        # How many visits we made to location in home/work hours
+        v['home_count'] = sum(v['home_per_hour_count'])
+        v['work_count'] = sum(v['work_per_hour_count'])
+        # How many seconds we spent at location in home/work hours
+        v['home_duration'] = sum(v['home_per_hour_duration'])
+        v['work_duration'] = sum(v['work_per_hour_duration'])
+        # How many unique days/hours we visited location in home/work hours
+        v['home_day_count'] = len(v['home_day_count'])
+        v['work_day_count'] = len(v['work_day_count'])
+        v['home_hour_count'] = len(v['home_hour_count'])
+        v['work_hour_count'] = len(v['work_hour_count'])
+        
+    # Port to dataframe and add global values: 
+    df_stats = pd.DataFrame.from_dict(locs_stats, orient='index')
+    # - How many unique hours/days we seen in total in home/work hours
+    df_stats['tot_seen_home_hours'] = len(total_seen_home_hours)
+    df_stats['tot_seen_home_days'] = len(total_seen_home_days)
+    df_stats['tot_seen_work_hours'] = len(total_seen_work_hours)
+    df_stats['tot_seen_work_days'] = len(total_seen_work_days)
+    # - How many unique hours/days/stops/duration we seen in total
+    df_stats['tot_seen_hours'] = len(total_seen_hours)
+    df_stats['tot_seen_days'] = len(total_seen_days)
+    df_stats['tot_stop_count'] = df_stop_locs_usr.shape[0]
+    df_stats['tot_stop_time'] = df_stop_locs_usr[durColName].sum()
+    # - The fraction of hours seen (duration spent) at location w.r.t. the total valid stops
+    df_stats['frac_home_count'] = df_stats['home_count'] / df_stats['tot_seen_home_hours'].clip(lower=1.)
+    df_stats['frac_work_count'] = df_stats['work_count'] / df_stats['tot_seen_work_hours'].clip(lower=1.)
+    df_stats['frac_home_duration'] = df_stats['home_duration'] / max(1.,df_stats['home_duration'].sum())
+    df_stats['frac_work_duration'] = df_stats['work_duration'] / max(1.,df_stats['work_duration'].sum())
+    
+    # - Compute the delta (fraction of hours for which the location is the most visited in
+    # terms of counts/duration )
+    for source, target in zip([
+                        'home_per_hour_count', 'work_per_hour_count',
+                        'home_per_hour_duration', 'work_per_hour_duration',], [
+                        'home_delta_count', 'work_delta_count',
+                        'home_delta_duration', 'work_delta_duration']):
+        # Count the number of items in each row that are the maximum column wise
+        # and then transform in the fraction 
+        tmp_vs = np.stack(df_stats[source])
+        tmp_vs = (tmp_vs == tmp_vs.max(axis=0, keepdims=True).clip(min=1.)).sum(axis=1, keepdims=True)\
+                / max(1, tmp_vs.shape[1])
+        df_stats[target] = tmp_vs.squeeze(-1,)
+        
+    # Find home which is the most visited during home hours respecting the parameters
+    candidates =   df_stats.query(f"home_day_count >= {min_home_days} & home_hour_count >= {min_home_hours}")
+    candidates = candidates.query(f"work_day_count >= {min_work_days} & work_hour_count >= {min_work_hours}")
+    candidates = candidates.query(f"home_delta_count >= {min_home_delta_count} & work_delta_count >= {min_work_delta_count}")
+    candidates = candidates.query(f"home_delta_duration >= {min_home_delta_duration} & work_delta_duration >= {min_work_delta_duration}")
+    home_loc_id = None
+    work_loc_id = None
+    if candidates.shape[0] > 0:
+        home_loc = candidates.sort_values('home_delta_duration', ascending=False).iloc[0]
+        if home_loc['home_hour_count'] > 0:
+            home_loc_id = home_loc[locCol]
+        # Now the work location:
+        # - filter the home if we want to enforce different locations
+        if force_different:
+            candidates = candidates.query(f'{locCol} != {home_loc_id}')
+        if candidates.shape[0] > 0:
+            # - filter the close locations if we want to enforce home work distance
+            if min_hw_distance_km > 0:
+                home_latlon = [[home_loc[latCol], home_loc[lonCol]]]
+                candidates['hw_distance_km'] = haversine_pairwise(
+                                                        candidates[[latCol,lonCol]].values,
+                                                        home_latlon,
+                                                    )
+                candidates = candidates.query(f'hw_distance_km >= {min_hw_distance_km}')
+            work_loc = candidates.sort_values('work_delta_duration', ascending=False).iloc[0]
+            if work_loc['work_hour_count'] > 0:
+                work_loc_id = work_loc[locCol]
+    # Annotate the home/work results
+    df_stats['isHome'] = df_stats[locCol].apply(lambda i: i==home_loc_id)
+    df_stats['isWork'] = df_stats[locCol].apply(lambda i: i==work_loc_id)
+    # df_stats[uidColName] = df_stop_locs_usr.iloc[0][uidColName]
+    df_stats = df_stats.set_index([locCol])
+    return df_stats
+
+'''
+These are the functions to only use pings and tessellation
+'''
 
 def userHomeWork(df, homeHours=(19.5,7.5), workHours=(9.,18.5), weHome=False):
     '''Computes, for each row of the dataset, if the ping has been recorded in home or
-    work time. Can be used in combination with :attr:`mobilkit.stats.determineHomeWork` to determine the home and work location of a user.
+    work time. Can be used in combination with :attr:`mobilkit.stats.determineHomeWork` to determine the home
+    and work location of a user.
 
     Parameters
     ----------
@@ -195,9 +620,11 @@ def userHomeWork(df, homeHours=(19.5,7.5), workHours=(9.,18.5), weHome=False):
         The loaded dataframe with at least `uid`, `datetime` and `tile_ID` columns.
 t 
     homeHours :  tuple, optional
-        The starting and end hours of the home period in 24h floating numbers. For example, to put the house period from 08:15pm to 07:20am put ``homeHours=(20.25, 7.33)``.
+        The starting and end hours of the home period in 24h floating numbers. For example, to put the house
+        period from 08:15pm to 07:20am put ``homeHours=(20.25, 7.33)``.
     workHours :  tuple, optional
-        The starting and end hours of the work period in 24h floating numbers. For example, to put the work period from 09:15am to 06:50pm put ``workHours=(9.25, 18.8333)``.
+        The starting and end hours of the work period in 24h floating numbers. For example, to put the work
+        period from 09:15am to 06:50pm put ``workHours=(9.25, 18.8333)``.
         **Note that work hours are counted only from Monday to Friday.**
     weHome : bool, optional
         If ``False`` (default) counts only weekend hours within the home hours as valid home hours.
@@ -206,15 +633,23 @@ t
     Returns
     -------
     out : dask.dataframe
-        The dataframe with two additional columns: `isHome` and `isWork` telling if a given ping has been recorded during home or work time (or none of them).
+        The dataframe with two additional columns: `isHome` and `isWork` telling if a given ping has been
+        recorded during home or work time (or none of them).
     
     Note
     ----
-    When determining the home location of a user, please consider that some data providers, like _Cuebiq_, obfuscate/obscure/alter the coordinates of the points falling near the user's home location in order to preserve privacy.
+    When determining the home location of a user, please consider that some data providers, like _Cuebiq_,
+    obfuscate/obscure/alter the coordinates of the points falling near the user's home location in order to
+    preserve privacy.
 
-    This means that you cannot locate the precise home of a user with a spatial resolution higher than the one used to obfuscate these data. If you are interested in the census area (or geohash) of the user's home alone and you are using a spatial tessellation with a spatial resolution wider than or equal to the one used to obfuscate the data, then this is of no concern.
+    This means that you cannot locate the precise home of a user with a spatial resolution higher than the
+    one used to obfuscate these data. If you are interested in the census area (or geohash) of the user's
+    home alone and you are using a spatial tessellation with a spatial resolution wider than or equal to
+    the one used to obfuscate the data, then this is of no concern.
 
-    However, tasks such as stop-detection or POI visit rate computation may be affected by the noise added to data in the user's home location area. Please check if your data has such noise added and choose the spatial tessellation according to your use case.
+    However, tasks such as stop-detection or POI visit rate computation may be affected by the noise added
+    to data in the user's home location area. Please check if your data has such noise added and choose the
+    spatial tessellation according to your use case.
     '''
 
     # Note that day of week in spark is from 1 (Sunday) to 7 (Saturday).
@@ -356,14 +791,17 @@ def areaStats(df, start_date=None, stop_date=None, hours=(0,24), weekdays=(1,2,3
 
 
 def userHomeWorkLocation(df_hw : dask.dataframe, force_different: bool=False):
-    '''Given a dataframe returned by :attr:`mobilkit.stats.userHomeWork` computes, for each user, the home and work area as well as their location.
-    The home/work area is the one with more pings recorded and the location is assigned to the mean point of this cloud.
+    '''Given a dataframe returned by :attr:`mobilkit.stats.userHomeWork` computes, for each user,
+    the home and work area as well as their location.
+    The home/work area is the one with more pings recorded and the location is assigned to the mean
+    point of this cloud.
 
     Parameters
     ----------
 
     df_hw : dask.dataframe
-        A dataframe as returned by :attr:`mobilkit.stats.userHomeWork` with at least the `uid`, `tile_ID` and `isHome` and `isWork` columns.
+        A dataframe as returned by :attr:`mobilkit.stats.userHomeWork` with at least the `uid`,
+        `tile_ID` and `isHome` and `isWork` columns.
     force_different :  bool, optional
         Whether we want to force the work location to be different from the home location.
 
@@ -382,11 +820,18 @@ def userHomeWorkLocation(df_hw : dask.dataframe, force_different: bool=False):
             
     Note
     ----
-    When determining the home location of a user, please consider that some data providers, like _Cuebiq_, obfuscate/obscure/alter the coordinates of the points falling near the user's home location in order to preserve privacy.
+    When determining the home location of a user, please consider that some data providers,
+    like _Cuebiq_, obfuscate/obscure/alter the coordinates of the points falling near the user's
+    home location in order to preserve privacy.
 
-    This means that you cannot locate the precise home of a user with a spatial resolution higher than the one used to obfuscate these data. If you are interested in the census area (or geohash) of the user's home alone and you are using a spatial tessellation with a spatial resolution wider than or equal to the one used to obfuscate the data, then this is of no concern.
+    This means that you cannot locate the precise home of a user with a spatial resolution higher
+    than the one used to obfuscate these data. If you are interested in the census area (or geohash)
+    of the user's home alone and you are using a spatial tessellation with a spatial resolution wider
+    than or equal to the one used to obfuscate the data, then this is of no concern.
 
-    However, tasks such as stop-detection or POI visit rate computation may be affected by the noise added to data in the user's home location area. Please check if your data has such noise added and choose the spatial tessellation according to your use case.
+    However, tasks such as stop-detection or POI visit rate computation may be affected by the noise
+    added to data in the user's home location area. Please check if your data has such noise added
+    and choose the spatial tessellation according to your use case.
     '''
     # Same as before, focus on the points on the zone and times and compute the average point.
 #     w_u = pyspark.sql.Window().partitionBy(uidColName)

@@ -19,6 +19,7 @@ from matplotlib.colors import LogNorm
 import matplotlib.colors as mcolors
 from sklearn.metrics import r2_score
 from sklearn.linear_model import LinearRegression
+import seaborn as sns
 
 import geopandas as gpd
 import pyproj
@@ -32,6 +33,92 @@ from mobilkit.dask_schemas import (
     dttColName,
     zidColName,
 )
+
+def compareLinePlot(x_scatter, x_line, y, data,
+                    xlim=None,
+                    ylim=None,
+                    xlabel=None,
+                    ylabel=None,
+                    scatterkws={},
+                    lineplotkws={},
+                    figsize=(7,4),
+                   ):
+    '''
+    Compares a scattered data with its line estimated.
+    
+    Parameters
+    ----------
+    x_scatter, x_line, y : str
+        The columns to use for x in the scatter and line plot (in the line plot
+        you might want to use a binned version of the x) and as y.
+    data : pd.Dataframe
+        The dataframe to use.
+    xlim, ylim :  tuple, optional
+        The limits to put in the x and y axis.
+    xlabel, ylabel : str, optional
+        The x and y axis labels
+    scatterkws :  dict, optional
+        The keywords to pass to `seaborn.scatterplot`.
+        By default thay are:
+        `{'alpha':.075}`
+    lineplotkws :  dict, optional
+        The keywords to pass to `seaborn.lineplot`.
+        By default thay are:
+        `{'color':'C3',
+          'estimator':lambda g: np.percentile(g, 50),
+          'n_boot':200}`
+    figsize : tuple, optional
+        The figure size in inches.
+    Returns
+    -------
+    fig, ax : tuple
+        The figure and axes handle.
+    '''
+    
+    fig, ax = plt.subplots(1,1,figsize=figsize)
+    scakws = {
+        'alpha':.075
+    }
+    linkws = {
+        'color':'C3',
+        'estimator':lambda g: np.percentile(g, 50),
+        'n_boot':200
+    }
+    
+    scakws.update(**scatterkws)
+    linkws.update(**lineplotkws)
+    
+    ax = sns.scatterplot(
+        data=data,
+        x=x_scatter,
+        y=y,
+        ax=ax,
+        **scakws
+    )
+    
+    ax = sns.lineplot(
+        data=data,
+        x=x_line,
+        y=y,
+        ax=ax,
+        **linkws
+    )
+
+    if xlim:
+        plt.xlim(*xlim)
+    if ylim:
+        plt.ylim(*ylim)
+        
+    if xlabel:
+        plt.xlabel(xlabel)
+    else:
+        plt.xlabel(x_scatter)
+    if ylabel:
+        plt.ylabel(ylabel)
+    else:
+        plt.ylabel(y)
+    
+    return fig, ax
 
 def visualize_simpleplot(df):
     import contextily as ctx
