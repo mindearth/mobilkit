@@ -47,7 +47,7 @@ medLatColName = latColName + '_medoid'
 medLonColName = lonColName + '_medoid'
 radLonColName = lonColName + '_RAD_'
 radLatColName = latColName + '_RAD_'
-locColName = "loc_id"
+locColName = "loc_ID"
 
 
 eventLineRAW = [

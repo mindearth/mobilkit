@@ -355,6 +355,8 @@ def osrm_time_trip(latlon_start,
         `what==duration,distance`.
     
     '''
+    # Port to meters
+    max_trip_distance = max_trip_distance*1000.
     assert what in ['duration', 'distance', 'duration,distance']
     doubleReturn = what == 'duration,distance'
 
@@ -375,30 +377,20 @@ def osrm_time_trip(latlon_start,
         tmp_distances = np.ones(1) * max_trip_distance
     else:
         if what == 'duration' or doubleReturn:
-            tmp_durations = np.array(result['durations'][0])
-            tmp_durations = np.where(
-                np.logical_or(
-                    np.isnan(tmp_durations),
-                    np.isinf(tmp_durations)),
-                np.ones_like(tmp_durations) * max_trip_duration,
-                tmp_durations,
-            )
+            tmp_duration = result['durations'][0][0]
+            if tmp_duration is not None and not np.isfinite(tmp_duration):
+                tmp_duration = max_trip_duration
         if what == 'distance' or doubleReturn:
-            tmp_distances = np.array(result['distances'][0])
-            tmp_distances = np.where(
-                np.logical_or(
-                    np.isnan(tmp_distances),
-                    np.isinf(tmp_distances)),
-                np.ones_like(tmp_distances) * max_trip_distance,
-                tmp_distances,
-            )
+            tmp_distance = result['distances'][0][0]
+            if tmp_distance is not None and not np.isfinite(tmp_distance):
+                tmp_distance = max_trip_distance
             
     if what == 'duration':
-        return tmp_durations[0]
+        return tmp_duration
     elif what == 'distance':
-        return tmp_distances[0]
+        return tmp_distance
     elif doubleReturn:
-        return (tmp_durations[0], tmp_distances[0])
+        return (tmp_duration, tmp_distance)
     else:
         raise RuntimeError('SHOULD NOT HAPPEN')
 
