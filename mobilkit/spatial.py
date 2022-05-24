@@ -814,7 +814,7 @@ def _find_user_locations_INFOSTOP(df_stops,
     is_kws.update(add_infostop_kws)
     
     if df_stops.shape[0] > 0:
-        IS_model = SpatialInfomapSpatialInfomap(r2=r2, label_singleton=label_singleton)
+        IS_model = SpatialInfomap(r2=r2, label_singleton=label_singleton)
         labels = IS_model.fit_predict(df_stops[[latColName, lonColName]].values)
         df_stops[locColName] = labels
         
@@ -1121,6 +1121,34 @@ def distanceHomeUser(g,
     distances = haversine_pairwise(tmp_coordinates, home_lat_lon)
     g["home_dist"] = distances[:,0]
     return g
+
+def user_dist_cbds(df_hw,
+                  cbds_latlon,
+                  assign_lat_col='lat_work',
+                  assign_lng_col='lng_work',
+                  distance_lat_col='lat_home',
+                  distance_lng_col='lng_home',
+                 ):
+    '''
+    Computes the distance from the CBD for each user using the cbd which is closest
+    to the assign lat lons and computing its distance from distance_lat/lng.
+    '''
+    
+    df_hw['closest_cbd_idx'] = df_hw.apply(lambda r: np.argmin(haversine_pairwise([[r[assign_lat_col], r[assign_lng_col]]],
+                                                                         cbds_latlon)[0,:], axis=0)
+                                           if not (pd.isna(r[assign_lat_col])
+                                                   or pd.isna(r[assign_lng_col])
+                                                  ) else None
+                                           , axis=1)
+    
+    df_hw['closest_cbd_dist'] = df_hw.apply(lambda r: haversine_pairwise([[r[distance_lat_col], r[distance_lng_col]]],
+                                                                        cbds_latlon[int(r['closest_cbd_idx']),:].reshape(1,-1))[0,0]
+                                           if not (pd.isna(r[distance_lat_col])
+                                                   or pd.isna(r[distance_lng_col])
+                                                   or pd.isna(r['closest_cbd_idx'])
+                                                  ) else None
+                                           , axis=1)
+    return df_hw
 
 def distanceHomeDF(g, **kwargs):
     '''

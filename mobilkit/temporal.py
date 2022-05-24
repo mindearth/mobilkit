@@ -916,6 +916,7 @@ def computeVolumeProfile(df: dask.dataframe.DataFrame,
         df_volume = df_volume.droplevel(0, axis=1)
         df_volume.rename(columns={'nunique': 'users', 'count': 'pings'},
                          inplace=True)
+        df_volume['pings_per_user']  = df_volume['pings'] / df_volume['users'].clip(lower=1)
     else:
         df_volume.rename(columns={uidColName: what},
                          inplace=True)

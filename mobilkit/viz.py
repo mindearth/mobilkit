@@ -39,9 +39,12 @@ def compareLinePlot(x_scatter, x_line, y, data,
                     ylim=None,
                     xlabel=None,
                     ylabel=None,
+                    doScatter=True,
+                    doLine=True,
                     scatterkws={},
                     lineplotkws={},
                     figsize=(7,4),
+                    ax=None,
                    ):
     '''
     Compares a scattered data with its line estimated.
@@ -74,8 +77,11 @@ def compareLinePlot(x_scatter, x_line, y, data,
     fig, ax : tuple
         The figure and axes handle.
     '''
-    
-    fig, ax = plt.subplots(1,1,figsize=figsize)
+    if ax is None:
+        fig, ax = plt.subplots(1,1,figsize=figsize)
+    else:
+        fig = ax.figure
+
     scakws = {
         'alpha':.075
     }
@@ -88,35 +94,37 @@ def compareLinePlot(x_scatter, x_line, y, data,
     scakws.update(**scatterkws)
     linkws.update(**lineplotkws)
     
-    ax = sns.scatterplot(
-        data=data,
-        x=x_scatter,
-        y=y,
-        ax=ax,
-        **scakws
-    )
+    if doScatter:
+         ax = sns.scatterplot(
+            data=data,
+            x=x_scatter,
+            y=y,
+            ax=ax,
+            **scakws
+        )
     
-    ax = sns.lineplot(
-        data=data,
-        x=x_line,
-        y=y,
-        ax=ax,
-        **linkws
-    )
+    if doLine:
+        ax = sns.lineplot(
+            data=data,
+            x=x_line,
+            y=y,
+            ax=ax,
+            **linkws
+        )
 
     if xlim:
-        plt.xlim(*xlim)
+        ax.set_xlim(*xlim)
     if ylim:
-        plt.ylim(*ylim)
+        ax.set_ylim(*ylim)
         
     if xlabel:
-        plt.xlabel(xlabel)
+        ax.set_xlabel(xlabel)
     else:
-        plt.xlabel(x_scatter)
+        ax.set_xlabel(x_scatter)
     if ylabel:
-        plt.ylabel(ylabel)
+        ax.set_ylabel(ylabel)
     else:
-        plt.ylabel(y)
+        ax.set_ylabel(y)
     
     return fig, ax
 
