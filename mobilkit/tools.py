@@ -215,7 +215,9 @@ def visualizeClustersProfiles(results_clusters, nClusts=5,
 
 
 def plotCommunities(results_clusters, nClusts):
-    '''Function to plot the similarity matrix between areas.
+    '''
+    Function to plot the similarity matrix between areas.
+    
     Parameters
     ----------
     results_clusters : dict
@@ -259,6 +261,7 @@ def plotCommunities(results_clusters, nClusts):
 
 def plotClustersMap(gdf, results_clusters, mappings, nClusts=5):
     '''Function to plot the similarity matrix between areas.
+
     Parameters
     ----------
     gdf : geopandas.GeoDataFrame
@@ -277,7 +280,6 @@ def plotClustersMap(gdf, results_clusters, mappings, nClusts=5):
     ax : axis
         The ax of the figure.
     '''
-
     # Visualize them on map
     # Create a column on the gdf with the cluster label
     linkagesMatrix = results_clusters["linkagesMatrix"]

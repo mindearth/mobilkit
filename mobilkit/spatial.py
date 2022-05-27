@@ -623,7 +623,8 @@ def findStops(df,
                             .apply(_find_stops,
                                    meta=return_meta,
                                    custom_stay_locations_kwds=stay_locations_kwds,
-                                   )
+                                   ).map_partitions(lambda d: d.reset_index(drop=True))\
+                            .repartition(npartitions=200)
     stops_df[durColName] = (stops_df[ldtColName]
                              - stops_df[dttColName]).dt.total_seconds()
     if tesselation_shp:
@@ -988,7 +989,7 @@ def totalUserTravelDistance(df_pings, doROG=False, freq='1d'):
         If `True` also computes the ROG on the pings of that day.
     freq : str, optional
         The datetime interval to fllor the `dttColName` to (default one day).
-        
+    
     Returns
     -------
     ttd : dask.DataFrame

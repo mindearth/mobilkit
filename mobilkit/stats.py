@@ -189,12 +189,9 @@ def filterUsers(df, dfStats=None, minPings=1, minDaysSpanned=1, minDaysActive=1,
 
     return df_out, dfStats, valid_users_set
 
-'''
-There are two possible approaches to the home computation
-
-The one here leverages on stops and/or locations.
-
-Another one is below, and uses the raw pings and the tessellated areas only.
+'''There are two possible approaches to the home computation
+  The one here leverages on stops and/or locations.
+  Another one is below, and uses the raw pings and the tessellated areas only.
 '''
 
 def stopsToHomeWorkStats(df_stops,
@@ -458,21 +455,20 @@ def computeHomeWorkSurvival(df_stops_stats,
     return out_df, df_cnt
 
 
-
+'''These are the functions to only use pings and tessellation
 '''
-These are the functions to only use pings and tessellation
-'''
-
 def userHomeWork(df, homeHours=(19.5,7.5), workHours=(9.,18.5), weHome=False):
-    '''Computes, for each row of the dataset, if the ping has been recorded in home or
-    work time. Can be used in combination with :attr:`mobilkit.stats.determineHomeWork` to determine the home
-    and work location of a user.
+    '''
+    Computes, for each row of the dataset, if the ping has been recorded in home or
+    work time. Can be used in combination with :attr:`mobilkit.stats.homeWorkStats'
+    and :attr:'mobilkit.stats.userHomeWorkLocation` to determine the home and work
+    locations of a user.
 
     Parameters
     ----------
     df : dask.dataframe
         The loaded dataframe with at least `uid`, `datetime` and `tile_ID` columns.
-t 
+ 
     homeHours :  tuple, optional
         The starting and end hours of the home period in 24h floating numbers. For example, to put the house
         period from 08:15pm to 07:20am put ``homeHours=(20.25, 7.33)``.
@@ -505,7 +501,6 @@ t
     to data in the user's home location area. Please check if your data has such noise added and choose the
     spatial tessellation according to your use case.
     '''
-
     # Note that day of week in spark is from 1 (Sunday) to 7 (Saturday).
     cols_in = list(df.columns)
     
@@ -514,7 +509,6 @@ t
     df = df.assign(dow=df[dttColName].dt.weekday,
                     hfloat=df[dttColName].dt.hour + df[dttColName].dt.minute / 60.)
 
-    
     if weHome:
         df["isHome"] = df["dow"] > 4
     else:
@@ -1432,8 +1426,7 @@ def plotSurvivalFrac(users_stats_df, min_frac=.8, ax=None):
     
     return ax
 
-'''
-**Auxiliary functions**
+'''**Auxiliary functions**
 '''
 
 def _compute_usr_hw_stats_locations(df_stop_locs_usr,
