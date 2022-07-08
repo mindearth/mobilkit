@@ -6,3 +6,6 @@ mobilkit.egg-info
 *.gz
 *.pyo
 .ipynb_checkpoints
+dist/
+docs/_build/
+docs/mobilkit.*.rst
