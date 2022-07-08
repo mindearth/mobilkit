@@ -1,3 +1,5 @@
+docs/_build
+dist
 build
 mobilkit.egg-info
 *.pyc
