@@ -274,8 +274,7 @@ def stopsToHomeWorkStats(df_stops,
         locCol = zidColName
         
     out_meta = {
-        # uidColName: str,
-        # locCol: int, 
+        locCol: int, 
         latCol: float,
         lonCol: float,
         'home_day_count': int,
@@ -307,7 +306,8 @@ def stopsToHomeWorkStats(df_stops,
         'home_delta_duration': float,
         'work_delta_duration': float,
         'isHome': bool,
-        'isWork': bool
+        'isWork': bool,
+        uidColName: str,
     }
         
     df_stats = df_stops.groupby(uidColName)\
@@ -330,7 +330,7 @@ def stopsToHomeWorkStats(df_stops,
                         lonCol=lonCol,
                         locCol=locCol,
                         meta=out_meta,
-                    ).reset_index()
+                    ).reset_index(drop=True)
     
     return df_stats
 
@@ -1501,6 +1501,8 @@ def _compute_usr_hw_stats_locations(df_stop_locs_usr,
        - 'isHome', 'isWork' the flag telling whsther the location is home or work (or potentially both,
          if `force_different` is False).
     '''
+    # Save user id
+    tmp_uid = df_stop_locs_usr[uidColName].iloc[0]
     # Prepare the containers of results:
     # - I compute the hours in home and work ranges
     reverseHomeHours = home_hours[0] > home_hours [1]
@@ -1694,7 +1696,8 @@ def _compute_usr_hw_stats_locations(df_stop_locs_usr,
     df_stats['isHome'] = df_stats[locCol].apply(lambda i: i==home_loc_id)
     df_stats['isWork'] = df_stats[locCol].apply(lambda i: i==work_loc_id)
     # df_stats[uidColName] = df_stop_locs_usr.iloc[0][uidColName]
-    df_stats = df_stats.set_index([locCol])
+    # df_stats = df_stats.set_index([locCol])
+    df_stats[uidColName] = tmp_uid
     return df_stats
 
 
