@@ -264,12 +264,13 @@ def loaddata_takeapeek(dirpath, sep, ext):
 
 def compute_datetime_col(df, selected_tz):
     if dttColName in df.columns:
-        print("Warning, %s column already present, not computing it...")
+        print("Warning, '%s' column already present, not computing it..." % dttColName)
     else:
         df[dttColName] = dd.to_datetime(df[utcColName]*1e9, utc=False, unit="ns")\
                         .dt.tz_localize("UTC")\
                         .dt.tz_convert(selected_tz)\
                         .dt.tz_localize(None)
+        df[dttColName] = df[dttColName].astype('datetime64[s]')
 
     return df
 

@@ -13,10 +13,11 @@ import seaborn as sns
 import geopandas as gpd
 from datetime import datetime, timedelta
 
+import dask
 from dask import dataframe as dd
 from dask import array as da
 import dask.bag as db
-from mobilkit.dask_schemas import nunique, unique
+from mobilkit.dask_schemas import nunique, unique, sets2nunique
 
 from haversine import haversine
 
@@ -30,7 +31,7 @@ from mobilkit.dask_schemas import (
     zidColName,
 )
 from mpl_toolkits.axes_grid1 import make_axes_locatable
-from itertools import chain
+from itertools import chain, count
 from shapely.geometry import Polygon
 
 
@@ -244,7 +245,9 @@ def computeTemporalProfile(df_tot, timeBin,
                            date_format=None,
                            sliceName=None,
                            selected_areas=None,
-                           areasName=None):
+                           areasName=None,
+                           split_out=10,
+                           ):
     '''Function to compute the normalized profiles of areas.
     The idea is to have a dataframe with the count of users and pings
     per time bin (and per area is ``byArea=True``) together with a
@@ -288,9 +291,9 @@ def computeTemporalProfile(df_tot, timeBin,
         (i.e., ``"weekly"`` or ``"monthly"`` if ``timeBin="week"``) otherwise
         the normalization will fail.
     weekdays : set or list, optional
-        The weekdays to consider (1 Sunday -> 7 Saturday).
+        The weekdays to consider (0 Monday -> 6 Sunday).
         Default ``None`` equals to keep all.
-    normalize : str, optional
+    normalization : str, optional
         One of ``None, "area", "total"``.
         Normalize nothing (``None``), on the total period of the area
         (``area``) or on the total period of all the selected areas (``total``).
@@ -307,6 +310,9 @@ def computeTemporalProfile(df_tot, timeBin,
         Use :attr:`mobilkit.spatial.selecteAreasFromBounds` to select areas from given bounds.
     areasName : str, optional
         The name that will be saved in `areaName` column, if given.
+    split_out : int, optional
+        The number of partitions to split the results in (for large number of areas and time bins).
+        The default value of 10 should work in most of the cases.
 
     Returns
     -------
@@ -389,75 +395,49 @@ def computeTemporalProfile(df_tot, timeBin,
                        - dd.to_timedelta(df[timeBin].dt.weekday, unit='d')).dt.floor("D")
     else:
         df[profile] = df[timeBin].dt.floor(profile_pandas)
-
-#     df_reduced = df.groupby(aggKeys).agg(
-#                         {uidColName: ["count", nunique],
-#                             profile: ["first"],})
-#     # Flatten columns and rename
-#     df_reduced.columns = ['_'.join(col).strip() for col in df_reduced.columns.values]
-#     df_reduced = df_reduced.rename(columns={
-#                                 uidColName + "_count": "pings",
-#                                 uidColName + "_nunique": "users",
-#                                 profile + "_first": profile,})
     
-#     df_reduced["pings_per_user"] = df_reduced["pings"] / df_reduced["users"].clip(lower=1.)
-#     df_reduced = df_reduced.reset_index()
-    if normalization is None:
-        return_meta = dict(**df.dtypes)
-        return_meta = {k: return_meta[k] for k in [timeBin,profile,zidColName]}
-        return_meta["pings"] = np.int64
-        return_meta["users"] = np.int64
-        return_meta["pings_per_user"] = np.float64
-        if byArea:
-            # print("No norm, area", df)
-            df_reduced = df_reduced.assign(col1=df_reduced[zidColName])
-            df_reduced = df.groupby(col1)\
-                                    .apply(_computePerAreaGrouped,
-                                           binKey=timeBin, profile=profile,
-                                           meta=return_meta)
+    # KISS: we can just make a two steps if else
+    # First group by period, area and timestamp
+    # Then compute the total count to use depending on the normalization
+    # Finally join the two to compute fractions:
+    counts_df = df.groupby([profile,zidColName,timeBin])\
+                    .agg({uidColName: [unique, 'count']},
+                         split_out=split_out)
+    counts_df.columns = ['users', 'pings']
+    
+    if normalization is not None:
+        # Groupby period + tile if norm by area
+        if normalization == 'area':
+            group_keys = [profile, zidColName]
+        elif normalization == 'total':
+            group_keys = [profile]
         else:
-            df_reduced = _computePerAreaGrouped(df,
-                                                binKey=timeBin,
-                                                profile=profile)
-    else:
-        return_meta = dict(**df.dtypes)
-        return_meta = {k: return_meta[k] for k in [timeBin, zidColName, profile]}
-        return_meta["pings"] = np.int64
-        return_meta["users"] = np.int64
-        return_meta["pings_per_user"] = np.float64
-        return_meta["tot_pings"] = np.int64
-        return_meta["tot_users"] = np.int64
-        return_meta["frac_pings"] = np.float64
-        return_meta["frac_users"] = np.float64
+            raise RuntimeError('Unknown normnalization %s in agg' % normalization)
+        tot_totals = counts_df.groupby(group_keys)\
+                            .agg({
+                                'users': sets2nunique,
+                                'pings': 'sum',
+                            })
+        tot_totals = tot_totals.rename(columns={
+                            'users': 'tot_users',
+                            'pings': 'tot_pings'
+                        })
+        # Do it here to limit shuffle size as done in the else BELOW
+        counts_df = counts_df.assign(users=counts_df['users'].apply(len))
         
-        if byArea:
-            df = df.assign(col1=df[zidColName], col2=df[profile])
-            aggNorm = ["col1","col2"]
-            # levelDrop = 2
-        else:
-            df = df.assign(col1=df[profile])
-            aggNorm = ["col1"]
-            # aggNorm = [profile]
-            # levelDrop = 1
-        # print(df.head(2))
-        # print(aggNorm, levelDrop, timeBin, return_meta)
-        df_reduced = df.groupby(aggNorm)\
-                        .apply(_computePerAreaGroupedNormalization,
-                               meta=return_meta, binKey=timeBin, profileKey=profile)
-#         try:
-#             # print(df_reduced.head(2))
-#             if levelDrop > 1:
-#                 df_reduced = df_reduced.map_partitions(my_droplevel,
-#                                                    level=levelDrop,
-#                                                    meta=return_meta)
-#             else:
-#                 #TODO not working on dask, don't know why...
-#                 # df_reduced = df_reduced.reset_index()
-#                 # df_reduced = df_reduced.drop("level_1", axis=1)
-#                 pass
-#             df_reduced = df_reduced.reset_index()
-#         except Exception as E:
-#             print("Warning, got exc:", str(E))
+        counts_df = counts_df.join(tot_totals)
+        counts_df = counts_df.assign(
+            frac_users     = counts_df['users'] / counts_df['tot_users'].clip(lower=1.),
+            frac_pings     = counts_df['pings'] / counts_df['tot_pings'].clip(lower=1.),
+        )
+    else:
+        # Just limit size as done ABOVE
+        counts_df = counts_df.assign(users=counts_df['users'].apply(len))
+
+
+    df_reduced = counts_df.assign(pings_per_user=counts_df['pings']
+                                                 / counts_df['users'].clip(lower=1.))\
+                        .reset_index()
             
     df_reduced["profile_hour"] = df_reduced[timeBin].dt.hour
     if profile == "week":
@@ -475,66 +455,9 @@ def computeTemporalProfile(df_tot, timeBin,
 
     return df_reduced
 
-
-def my_droplevel(df, level=1):
-    df.index = df.index.droplevel(level)
-    return df
-
-
-def _computePerAreaGroupedNormalization(g, binKey=None, profileKey=None):
-    # For each profile, area compute totals and per bins totals
-    # Totals
-    if type(g) == dd.core.DataFrame:
-        df_reduced = g.groupby(binKey)\
-                        .agg({latColName: "count",
-                              uidColName: nunique,
-                              zidColName: "first",
-                             profileKey: "first"})
-    else:
-        df_reduced = g.groupby(binKey)\
-                        .agg({latColName: "count",
-                              uidColName: "nunique",
-                             zidColName: "first",
-                             profileKey: "first"})
-        
-    df_reduced = df_reduced.rename(columns={latColName: "pings", uidColName: "users"})
-    df_reduced = df_reduced.assign(
-            pings_per_user=df_reduced["pings"]/df_reduced["users"],
-            tot_pings=df_reduced["pings"].sum(),
-            tot_users=df_reduced["users"].sum(),
-        )
-    df_reduced = df_reduced.assign(
-            frac_pings=df_reduced["pings"] / df_reduced["tot_pings"],
-            frac_users=df_reduced["users"] / df_reduced["tot_users"],
-        )
-    df_reduced = df_reduced.reset_index()
-    
-    return df_reduced[[binKey, zidColName, profileKey, "pings","users","pings_per_user",
-                      "tot_pings","tot_users","frac_pings","frac_users"]]
-
-
-def _computePerAreaGrouped(g, binKey=None, profile=None):
-    if type(g) == dd.core.DataFrame:
-        df_reduced = g.groupby(binKey).agg({uidColName: ["count", nunique],
-                                            profile: ["first"],
-                                            zidColName: ["first"]}).reset_index()
-    else:
-        df_reduced = g.groupby(binKey).agg({uidColName: ["count", "nunique"],
-                                            profile: ["first"],
-                                            zidColName: ["first"]}).reset_index()
-    # Flatten columns and rename
-    df_reduced.columns = ['_'.join(col).strip() if len(col[-1])>0 else col[0]
-                                  for col in df_reduced.columns.values]
-    df_reduced = df_reduced.rename(columns={
-                                uidColName + "_count": "pings",
-                                uidColName + "_nunique": "users",
-                                profile + "_first": profile,
-                                zidColName + "_first": zidColName,
-                            })
-    df_reduced["pings_per_user"] = df_reduced["pings"] / df_reduced["users"].clip(lower=1.)
-    df_reduced = df_reduced[[binKey, profile, zidColName, 'pings', 'users', 'pings_per_user']]
-    # df_reduced = df_reduced.reset_index()
-    return df_reduced    
+# def my_droplevel(df, level=1):
+#     df.index = df.index.droplevel(level)
+#     return df
 
 def computeResiduals(df_activity, signal_column, profile):
     '''Function that computes the average, z-score and residual activity of an area in a given time
@@ -949,3 +872,56 @@ def plotDisplacement(count_users_per_area, pivoted, gdf,
     
     return fig, gdf
     
+
+
+def computeVolumeProfile(df: dask.dataframe.DataFrame,
+                         what: str='pings',
+                         normalized: bool =True,
+                         freq='1d',
+                        ) -> pd.DataFrame:
+    '''
+    Computes the volume of pings or users in a given interval given by `freq`.
+    
+    Parameters
+    ----------
+    df : dask.dataframe.DataFrame
+        The dataframe containing the pings with at least the :attr:`mobilkit.dask_schemas.dttColName` and the
+        :attr:`mobilkit.dask_schemas.uidColName` columns.
+    what : str
+        `pings` `users` or `both`, the volume to count.
+    `normalize` : bool
+        If `True` will normalize the curve in the 0-1 range, otherwise returns the raw count.
+    `freq` : str
+        A valid datetime interval up to which the dates will be floored.
+        
+    Returns
+    -------
+    volume : pd.DataFrame
+        A dataframe whose index is the time bin and whose value is the observed volume.
+    '''
+    df['time_bin'] = df[dttColName].dt.floor(freq)
+    if what == 'pings':
+        aggDict = {uidColName: 'count'}
+    elif what == 'users':
+        aggDict = {uidColName: nunique}
+    elif what == 'both':
+        aggDict = {uidColName: [nunique, 'count']}
+    else:
+        raise RuntimeError('Unknown aggregation %s' % what)
+        
+    df_volume = df.groupby('time_bin').agg(aggDict).compute()
+    del df['time_bin']
+
+    if what == 'both':
+        df_volume = df_volume.droplevel(0, axis=1)
+        df_volume.rename(columns={'nunique': 'users', 'count': 'pings'},
+                         inplace=True)
+        df_volume['pings_per_user']  = df_volume['pings'] / df_volume['users'].clip(lower=1)
+    else:
+        df_volume.rename(columns={uidColName: what},
+                         inplace=True)
+    
+    if normalized:
+        df_volume /= df_volume.max()
+        
+    return df_volume

@@ -9,6 +9,8 @@ from collections import Counter
 
 import numpy as np
 import matplotlib.pyplot as plt
+import pandas as pd
+import geopandas as gpd
 
 from sklearn.cluster import KMeans
 from scipy.cluster.hierarchy import dendrogram, fcluster, linkage, correspond, inconsistent
@@ -16,6 +18,7 @@ from scipy.spatial.distance import cdist, pdist, squareform
 from scipy.cluster.hierarchy import cophenet
 from sklearn.metrics.pairwise import euclidean_distances, cosine_distances
 from sklearn.metrics import calinski_harabasz_score
+from requests import get as r_get
 
 from mobilkit.dask_schemas import (
     accColName,
@@ -132,7 +135,11 @@ def checkScore(results_clusters, score="scores"):
 
     return ax
 
-def visualizeClustersProfiles(results_clusters, nClusts=5, showMean=False, showMedian=True, showCurves=True, together=False):
+def visualizeClustersProfiles(results_clusters, nClusts=5,
+                              showMean=False,
+                              showMedian=True,
+                              showCurves=True,
+                              together=False):
     '''Function to plot the temporal profiles of clustering.
 
     Parameters
@@ -208,7 +215,9 @@ def visualizeClustersProfiles(results_clusters, nClusts=5, showMean=False, showM
 
 
 def plotCommunities(results_clusters, nClusts):
-    '''Function to plot the similarity matrix between areas.
+    '''
+    Function to plot the similarity matrix between areas.
+    
     Parameters
     ----------
     results_clusters : dict
@@ -252,6 +261,7 @@ def plotCommunities(results_clusters, nClusts):
 
 def plotClustersMap(gdf, results_clusters, mappings, nClusts=5):
     '''Function to plot the similarity matrix between areas.
+
     Parameters
     ----------
     gdf : geopandas.GeoDataFrame
@@ -270,7 +280,6 @@ def plotClustersMap(gdf, results_clusters, mappings, nClusts=5):
     ax : axis
         The ax of the figure.
     '''
-
     # Visualize them on map
     # Create a column on the gdf with the cluster label
     linkagesMatrix = results_clusters["linkagesMatrix"]
@@ -292,3 +301,156 @@ def plotClustersMap(gdf, results_clusters, mappings, nClusts=5):
                         .plot(color="none", edgecolor="black", ax=ax, zorder=1)
 
     return gdf, ax
+
+
+def computeGDFbounds(gdf: gpd.GeoDataFrame) -> dict:
+    '''
+    Computes the bounds of a `geopandas.GeoDataFrame` `gdf`
+    and returns a dictionary with the `min(x,y)` and `max(x,y)`
+    keys and their value as values (minx is the minimum longitude).
+
+    Parameters
+    ----------
+    gdf : geopandas.GeoDataFrame
+        The GeoDataFrame with at least the ``geometry`` column.
+
+    Returns
+    -------
+    bounds : dict
+        The mapping between the min/max x and y and their values.
+    '''
+    return gdf.bounds.agg({
+            'minx': min,
+            'miny': min,
+            'maxx': max,
+            'maxy': max,
+        }).to_dict()
+
+
+def osrm_time_trip(latlon_start,
+                    latlon_end,
+                    osrm_url,
+                    what='duration',
+                    max_trip_duration=10800,
+                    max_trip_distance=100.):
+    '''
+    Queries an OSRM backend server on `osrm_url` for the travel time or distance (depending
+    on `what`) between `latlon_start` and `latlon_end`.
+
+    Parameters
+    ----------
+    latlon_start, latlon_end : list or np.array
+        The latitude and longitude of the initial and final trip point (in WGS84, EPSG:4326 crs).
+    osrm_url : str
+        A valid table endpoint url of a OSRM-bakend service (like `http://localhost:5000/table/v1/car/`).
+    what : str, optional
+        Whether you want the `duration` or `distance` or `duration,distance`
+        of the trip.
+    max_trip_duration : float, optional
+        The maximum trip duration in seconds that will be put in place of NaNs or invalid trips.
+    max_trip_distance : float, optional
+        The maximum trip distance in km that will be put in place of NaNs or invalid trips.
+    Returns
+    -------
+    duration : float or tuple
+        The duration (length) of the trip in seconds (meters) or the two (duration,distance) if
+        `what==duration,distance`.
+    
+    '''
+    # Port to meters
+    max_trip_distance = max_trip_distance*1000.
+    assert what in ['duration', 'distance', 'duration,distance']
+    doubleReturn = what == 'duration,distance'
+
+    if not osrm_url.endswith('/'):
+        osrm_url = osrm_url + '/'
+
+    point_i = [latlon_start[1], latlon_start[0]]
+    point_f = [latlon_end[1], latlon_end[0]]
+    positions_str = ";".join([f'{p[0]},{p[1]}' for p in [point_i, point_f]])
+
+    result = r_get(osrm_url
+                   + positions_str
+                   + "?sources=0&destinations=1&annotations=%s" % what).json()
+    if result["code"] != "Ok":
+        print("\nWARNING, missed query at url", osrm_url,
+              "with latlon start end", latlon_start, latlon_end)
+        tmp_durations = np.ones(1) * max_trip_duration
+        tmp_distances = np.ones(1) * max_trip_distance
+    else:
+        if what == 'duration' or doubleReturn:
+            tmp_duration = result['durations'][0][0]
+            if tmp_duration is not None and not np.isfinite(tmp_duration):
+                tmp_duration = max_trip_duration
+        if what == 'distance' or doubleReturn:
+            tmp_distance = result['distances'][0][0]
+            if tmp_distance is not None and not np.isfinite(tmp_distance):
+                tmp_distance = max_trip_distance
+            
+    if what == 'duration':
+        return tmp_duration
+    elif what == 'distance':
+        return tmp_distance
+    elif doubleReturn:
+        return (tmp_duration, tmp_distance)
+    else:
+        raise RuntimeError('SHOULD NOT HAPPEN')
+
+def userHomeWorkTravelTimeOSRM(r, osrm_url,
+                               direction='hw',
+                               what='duration',
+                               max_trip_duration_h=4,
+                               max_trip_distance_km=150,
+                               ):
+    '''
+    Queries an OSRM backend server on `osrm_url` for the travel time or distance (depending
+    on `what`) between the home and work location for the user in the row `r`.
+
+    Parameters
+    ----------
+    r : dict or row of a pd.Dataframe
+        The row with the home and work latitude and longitude (in WGS84, EPSG:4326 crs)
+        in the `lat_home` format, as returned by :attr:`mobilkit.stats.userHomeWorkLocation`.
+    osrm_url : str
+        A valid table endpoint url of a OSRM-bakend service (like `http://localhost:5000/table/v1/car/`).
+    direction : str, optional
+        Whether you want the `home->work` ("hw") or `work->home` ("wh") time of the trip.
+    what : str, optional
+        Whether you want the `duration`, `distance` or `duration,distance` of the trip.
+    max_trip_duration_h : float, optional
+        The maximum trip duration in hours (or km if asking for distance) that will be put in place
+        of NaNs or invalid trips.
+    Returns
+    -------
+    duration : float
+        The duration (length) of the trip in seconds (meters) or the two (duration,distance) if
+        `what==duration,distance`.
+    '''
+    assert what in ['duration', 'distance', 'duration,distance']
+
+    if pd.isna(r[lonColName+'_home']) or pd.isna(r[lonColName+'_work']):
+        if what == 'duration,distance':
+            return [None, None]
+        else:
+            return None
+    else:
+        home_place = [r[latColName+'_home'], r[lonColName+'_home']]
+        work_place = [r[latColName+'_work'], r[lonColName+'_work']]
+        if direction == 'hw':
+            p_i = home_place
+            p_f = work_place
+        elif direction == 'wh':
+            p_i = work_place
+            p_f = home_place
+        else:
+            raise RuntimeError('Unknown direction %s'%direction)
+            
+        
+        res = osrm_time_trip(latlon_start=p_i,
+                              latlon_end=p_f,
+                              osrm_url=osrm_url,
+                              what=what,
+                              max_trip_duration=max_trip_duration_h*3600,
+                              max_trip_distance=max_trip_distance_km,
+                              )
+        return res

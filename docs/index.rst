@@ -127,15 +127,16 @@ If you use `mobilkit` please cite us:
   2021, KDD 2021 Humanitarian Mapping Workshop, https://arxiv.org/abs/2107.14297
 
 Bibtex:
-
     @misc{ubaldi2021mobilkit,
         title={Mobilkit: A Python Toolkit for Urban Resilience and Disaster Risk Management Analytics using High Frequency Human Mobility Data},
         author={Enrico Ubaldi and Takahiro Yabe and Nicholas K. W. Jones and Maham Faisal Khan and Satish V. Ukkusuri and Riccardo Di Clemente and Emanuele Strano},
         year={2021},
         eprint={2107.14297},
-        primaryClass={cs.CY}
-        archivePrefix={arXiv},
-    }
+        primaryClass={cs.CY},
+        archivePrefix={arXiv}}
+
+      
+    
   
 
 Credits and contacts
@@ -144,6 +145,8 @@ Credits and contacts
 This code has been developed by `Mindearth <https://mindearth.ch>`_, the `Global Facility for Disaster Reduction and Recovery <https://www.gfdrr.org/en>`_ (GFDRR) and `Purdue University <https://www.purdue.edu/>`_.
 
 Funding was provided by the Spanish Fund for Latin America and the Caribbean (SFLAC) under the Disruptive Technologies for Development (DT4D) program.
+
+The findings, interpretations, and conclusions expressed in this repository and in the example notebooks are entirely those of the authors. They do not necessarily represent the views of the International Bank for Reconstruction and Development/World Bank and its affiliated organizations, or those of the Executive Directors of the World Bank or the governments they represent.
 
 The code is released under the MIT license (see the LICENSE file for details).
 
@@ -157,6 +160,8 @@ The code is released under the MIT license (see the LICENSE file for details).
    examples/M4R_02_DisplacementAnalysis.ipynb
    examples/M4R_03_POI_visit_analysis.ipynb
    examples/M4R_04_Population_Density_Analysis.ipynb
+   examples/USS01_Mumbai.ipynb
+   examples/USS02_CityComparison.ipynb
    reference/Loading_data.rst
    mobilkit
 

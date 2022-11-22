@@ -25,6 +25,14 @@ nunique = dd.Aggregation(
     finalize=lambda s1: s1.apply(lambda final: len(set(final))),
 )
 
+sets2nunique = dd.Aggregation(
+    name="sets2nunique",
+    chunk=lambda s: s.apply(lambda x: list(set([e for es in x for e in es]))),
+    agg=lambda s0: s0.obj.groupby(level=list(range(s0.obj.index.nlevels))).sum(),
+    finalize=lambda s1: s1.apply(lambda final: len(set(final))),
+)
+
+# Constant column names
 accColName = "acc"
 lonColName = "lng"
 latColName = "lat"
@@ -32,6 +40,14 @@ uidColName = "uid"
 utcColName = "UTC"
 dttColName = "datetime"
 zidColName = "tile_ID"
+stpColName = 'stops'
+ldtColName = 'leaving_datetime'
+durColName = 'duration'
+medLatColName = latColName + '_medoid'
+medLonColName = lonColName + '_medoid'
+radLonColName = lonColName + '_RAD_'
+radLatColName = latColName + '_RAD_'
+locColName = "loc_ID"
 
 
 eventLineRAW = [

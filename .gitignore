@@ -1,4 +1,11 @@
+docs/_build
+dist
+build
+mobilkit.egg-info
 *.pyc
 *.gz
 *.pyo
 .ipynb_checkpoints
+dist/
+docs/_build/
+docs/mobilkit.*.rst
