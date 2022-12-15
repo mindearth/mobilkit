@@ -621,13 +621,13 @@ def findStops(df,
     return_meta[ldtColName] = return_meta[dttColName]
     stops_df = df.groupby(uidColName)\
                             .apply(_find_stops,
-                                   meta=return_meta,
                                    custom_stay_locations_kwds=stay_locations_kwds,
+                                   meta=return_meta,
                                    ).map_partitions(lambda d: d.reset_index(drop=True))\
                             .repartition(npartitions=200)
     stops_df[durColName] = (stops_df[ldtColName]
                              - stops_df[dttColName]).dt.total_seconds()
-    if tesselation_shp:
+    if tesselation_shp is not None:
         stops_df, _ = tessellate(stops_df, tesselation_shp, filterAreas=filterAreas)
     return stops_df
 
@@ -652,7 +652,7 @@ def computeUsersLocations(stops_df,
                                    db_eps=link_dist,
                                    db_min_count=min_stops_count,
                                    meta=out_meta,
-                            ).reset_index()
+                            ).reset_index(drop=True)
     elif method == 'infostop':
         try:
             import infostop
@@ -663,7 +663,7 @@ def computeUsersLocations(stops_df,
                             .apply(_find_user_locations_INFOSTOP,
                                    label_singleton=min_stops_count==1,
                                    meta=out_meta,
-                            ).reset_index()
+                            ).reset_index(drop=True)
     else:
         raise RuntimeError('Location detection method %s not implemented!' % method)
     
