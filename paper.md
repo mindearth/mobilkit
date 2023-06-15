@@ -48,16 +48,16 @@ bibliography: paper.bib
 The availability of mobility data is increasing thanks to the widespread adoption 
 of mobile phones and location-based services. This data generates powerful insights 
 on people's mobility habits, with applications in areas such as health, migration, 
-and poverty estimation. Yet, despite the growing academic literature on the usage 
+and poverty estimation. Yet despite the growing academic literature on the usage 
 and application of mobile phone location data in this field and despite the raising 
 awareness of the importance of  disaster preparedness and response and climate change 
 resilience, large-scale mobility data remain under-utilized in real-world disaster 
 management operations to this date [@barra2020solid].
 
 At present, only few tools allow for an integrated and inclusive analysis of mobility data. 
-While toolkits as [@de2016bandicoot] or [@pappalardo2019scikitmobility] allow to perform some basic 
+While toolkits as [@de2016bandicoot] or [@pappalardo2019scikitmobility] allow users to perform some basic 
 analytics on large mobility datasets, these cover only some of the steps in the mobility data 
-analysis pipeline. Very often you have to go fishing for functions/tools from other libraries 
+analysis pipeline. Very often users have to go fishing for functions/tools from other libraries 
 to cover for data pre-processing or visualization. Also, there is a lack of clear documentation 
 that enables policymakers and planners to understand the analytics process, outputs, and 
 potential questions that mobility data can answer, particularly in the context of post-disaster assessment.
@@ -70,7 +70,7 @@ to conduct post-disaster assessment using large-scale mobility data. The toolkit
 allows the user to conduct pre-processing of data, validation of the data 
 representativeness, home and office location estimation, post-disaster displacement analysis, 
 and point-of-interest visit analysis. The purpose of `Mobilkit` is to provide urban planners, 
-disaster policy makers and researchers an easy-to-use and practical toolkit to visualize, 
+disaster policy makers, and researchers an easy-to-use and practical toolkit to visualize, 
 analyze, and monitor post-disaster disruption and recovery. The software is freely-available 
 on GitHub along with online documentation and Jupyter Notebooks that provides step-by-step tutorials.
 
@@ -79,7 +79,7 @@ on GitHub along with online documentation and Jupyter Notebooks that provides st
 3) conduct post-disaster displacement and recovery analysis, 4) estimate the recovery of businesses 
 and social services by using point-of-interest (POI) data, and 5) measure and characterize the spatial structure of cities. 
 
-The functionality of `Mobilkit` is showcased using the outcomes of a project carried out in collaboration with the World Bank GFDRR aimed at assessing the impact on the population of the 7.1 magnitude earthquake with the epicenter located around 55km south of Puebla (about 100km south-east of Mexico City) occurred on  19 September 2017, using smartphone location data collected for Mexico before and after the earthquake. Methods regarding the spatial structure of cities are demonstrated using smartphone location data provided by Quadrant that cover ten different cities around the globe in March 2022. These use cases showcase the immense potential of using mobile phone location data and `Mobilkit` for planning and recovering from climate-related, man-made, and natural disasters.
+A project carried out in collaboration with the World Bank Global Facility for Disaster Reduction and Recovery aimed at assessing the impact of the 7.1 magnitude earthquake with the epicenter located around 55km south of Puebla (about 100km south-east of Mexico City) that occurred on 19 September 2017 s the functionality of `Mobilkit` using smartphone location data collected before and after the earthquake. Methods regarding the spatial structure of cities are demonstrated using smartphone location data provided by Quadrant that cover ten different cities around the globe in March 2022. These use cases showcase the immense potential of using mobile phone location data and `Mobilkit` for planning and recovering from climate-related, man-made, and natural disasters.
 
 # Acknowledgements
 
