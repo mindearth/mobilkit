@@ -43,21 +43,25 @@ If you would like to contribute or add functionalities to `mobilkit`, feel free 
 <a id='installation_pip'></a>    
 ### Install with pip
 
-You need to have a running version of `Dask` on your system. Once you have it you can create an environment and install mobilkit there.
+Start by creating an environment and install mobilkit there.
 
 1. Create an environment `mobilkit`
 
         python3 -m venv mobilkit
+		# or, on Windows
+		python -m venv c:\path\to\mobilkit
 
 2. Activate
     
         source mobilkit/bin/activate
+		# or, on Windows
+		c:\path\to\mobilkit\Scripts\activate.bat
 
 3. Update pip 
 
         pip install --upgrade pip
 
-4. Install mobilkit
+4. Install `mobilkit` (this will also install `Dask` and all the needed modules)
 
         pip install mobilkit
 
@@ -76,8 +80,10 @@ You need to have a running version of `Dask` on your system. Once you have it yo
 			
 			jupyter notebook
 			
-	- (Optional) install the kernel with a specific name
+	- (Optional) install the kernel with a specific name to your existing notebook server
 			
+			source mobilkit/bin/activate
+			pip install ipykernel
 			ipython kernel install --user --name=mobilkit_env
 		
 
@@ -86,7 +92,8 @@ If you already have [`scikit-mobility`](https://github.com/scikit-mobility/sciki
 `mobilkit` by default will only install core packages needed to run the main functions. There are three optional packages of dipendencies (the `mobilkit[complete]` installs everything):
 - `[viz]` will install `contextily`, needed to visualize map backgrounds in certain viz functions;
 - `[doc]` will install all the needed packages to build the docs;
-- `[skmob]` will install `scikit-mobility` as well.
+- `[skmob]` will install `scikit-mobility` as well;
+- `[locations]` will also install [`infostop`](https://github.com/ulfaslak/infostop) to detect users' typical locations.
 
 <a id='installation_conda'></a>
 ### Install with conda
