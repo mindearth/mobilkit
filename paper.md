@@ -69,7 +69,7 @@ potential questions that mobility data can answer, particularly in the context o
 to conduct post-disaster assessment using large-scale mobility data. The toolkit 
 allows the user to conduct pre-processing of data, validation of the data 
 representativeness, home and office location estimation, post-disaster displacement analysis, 
-and point-of-interest visit analysis. The purpose of `Mobilkit` is to provide urban planners, 
+and point-of-interest visit analysis. The purpose of [`Mobilkit`](https://github.com/mindearth/mobilkit) is to provide urban planners, 
 disaster policy makers, and researchers an easy-to-use and practical toolkit to visualize, 
 analyze, and monitor post-disaster disruption and recovery. The software is freely-available 
 on GitHub along with online documentation and Jupyter Notebooks that provides step-by-step tutorials.
@@ -79,7 +79,7 @@ on GitHub along with online documentation and Jupyter Notebooks that provides st
 3) conduct post-disaster displacement and recovery analysis, 4) estimate the recovery of businesses 
 and social services by using point-of-interest (POI) data, and 5) measure and characterize the spatial structure of cities. 
 
-A project carried out in collaboration with the World Bank Global Facility for Disaster Reduction and Recovery aimed at assessing the impact of the 7.1 magnitude earthquake with the epicenter located around 55km south of Puebla (about 100km south-east of Mexico City) that occurred on 19 September 2017 s the functionality of `Mobilkit` using smartphone location data collected before and after the earthquake. Methods regarding the spatial structure of cities are demonstrated using smartphone location data provided by Quadrant that cover ten different cities around the globe in March 2022. These use cases showcase the immense potential of using mobile phone location data and `Mobilkit` for planning and recovering from climate-related, man-made, and natural disasters.
+A project carried out in collaboration with the World Bank Global Facility for Disaster Reduction and Recovery aimed at assessing the impact of the 7.1 magnitude earthquake with the epicenter located around 55km south of Puebla (about 100km south-east of Mexico City) that occurred on 19 September 2017, leveraging on the functionalities of `Mobilkit` in analyzing smartphone location data collected before and after the earthquake. Methods regarding the spatial structure of cities are demonstrated using smartphone location data provided by Quadrant that cover ten different cities around the globe in March 2022. These use cases showcase the immense potential of using mobile phone location data and `Mobilkit` for planning and recovering from climate-related, man-made, and natural disasters.
 
 # Acknowledgements
 
