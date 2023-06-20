@@ -1,5 +1,5 @@
-distributed[full]==2022.4.1
-dask[full]==2022.4.1
+distributed[full]==2023.5.0
+dask[full]==2023.5.0
 click
 geopandas
 descartes

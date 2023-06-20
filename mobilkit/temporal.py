@@ -764,7 +764,7 @@ def computeDisplacementFigures(df_disp, minimum_pings_per_night=5):
     init_df_joined_pd = df_disp.sort_values([uidColName,"timeSlice"])
     pivoted = init_df_joined_pd[
                     init_df_joined_pd["pings"]>=minimum_pings_per_night]\
-                .pivot(uidColName, "window_date", zidColName)
+                .pivot(index=uidColName, columns="window_date", values=zidColName)
     pivoted = pivoted[sorted(pivoted.columns)]
     
     areas_displacement = set([d for d in pivoted.values.flatten() if not np.isnan(d)])
