@@ -7,6 +7,7 @@ tags:
   - geospatial analysis
 authors:
   - name: Enrico Ubaldi
+    orcid: 0000-0003-1685-9939
     equal-contrib: true
     affiliation: "1, 2" # (Multiple affiliations must be quoted)
   - name: Takahiro Yabe
@@ -19,12 +20,15 @@ authors:
   - name: Maham Faisal Khan
     affiliation: 3
   - name: Alessandra Feliciotti
+    orcid: 0000-0002-1471-5360
     affiliation: 1
   - name: Riccardo Di Clemente
+    orcid: 0000-0001-8005-6351
     affiliation: "4, 5"
   - name: Satish V. Ukkusuri
     affiliation: 6
   - name: Emanuele Strano
+    orcid: 0000-0002-2339-6824
     affiliation: 1
 affiliations:
  - name: MindEarth, Switzerland
@@ -33,9 +37,9 @@ affiliations:
    index: 2
  - name: The World Bank, USA
    index: 3
- - name: University of Exeter, UK
+ - name: Complex Connections Lab, Network Science Institute, Northeastern University London, London, E1W 1LP, United Kingdom.
    index: 4
- - name: The Alan Turing Institute, UK
+ - name: The Alan Turing Institute, London, NW12DB, United Kingdom.
    index: 5
  - name: Purdue University, USA
    index: 6
