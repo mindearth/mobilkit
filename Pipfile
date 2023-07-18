@@ -1,0 +1,35 @@
+[[source]]
+url = "https://pypi.python.org/simple"
+verify_ssl = true
+name = "pypi"
+
+[packages]
+distributed = "*"
+click = "*"
+geopandas = "*"
+descartes = "*"
+rtree = "*"
+fiona = "*"
+geojson = "*"
+haversine = "*"
+joblib = "*"
+matplotlib = "*"
+pyarrow = "*"
+scikit-learn = "*"
+scipy = "*"
+seaborn = "*"
+wheel = "*"
+build = "*"
+ipykernel = "*"
+scikit-mobility = "*"
+
+[dev-packages]
+
+[requires]
+python_version = "3.9"
+
+[packages.dask]
+extras = [ "complete",]
+
+[packages.dcb7f3c]
+path = "./dist/mobilkit-0.2.5.tar.gz"
