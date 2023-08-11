@@ -35,6 +35,8 @@ Full documentation with examples can be found online [here](https://mobilkit.rea
 ## Collaborate with us
 `mobilkit` is an active project and any contribution is welcome.
 
+You are encouraged to report any issue or problem encountered while using the software or to seek for support.
+
 If you would like to contribute or add functionalities to `mobilkit`, feel free to fork the project, open an issue and contact us.
 
 <a id='installation'></a>
