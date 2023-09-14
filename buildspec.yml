@@ -1,0 +1,9 @@
+version: 0.2
+phases:
+  pre_build:
+    commands:
+      - pip3 install awscli --upgrade --user
+      - aws codeartifact login --tool twine --repository mobilkit --domain mindearth-mobilkit --domain-owner 813732138169 --region eu-central-1
+  build:
+    commands:
+      - twine upload --repository codeartifact dist/*
