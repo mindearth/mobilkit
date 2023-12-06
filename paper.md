@@ -59,11 +59,13 @@ resilience, large-scale mobility data remain under-utilized in real-world disast
 management operations to this date [@barra2020solid].
 
 At present, only few tools allow for an integrated and inclusive analysis of mobility data. 
-While toolkits as [@de2016bandicoot] or [@pappalardo2019scikitmobility] allow users to perform some basic 
-analytics on large mobility datasets, these cover only some of the steps in the mobility data 
-analysis pipeline. Very often users have to go fishing for functions/tools from other libraries 
-to cover for data pre-processing or visualization. Also, there is a lack of clear documentation 
-that enables policymakers and planners to understand the analytics process, outputs, and 
+While several tookits allow users to perform some basic analytics on large mobility datasets
+(e.g., [@de2016bandicoot] or [@pappalardo2019scikitmobility]), these cover only some of the
+steps in the mobility data pipeline.
+These toolkits also do not provide adequate data pre-processing and visualization
+functionality which causes users to seek additional external options.
+Also, there is a lack of clear documentation 
+to enable policymakers and planners to understand the analytics process, outputs, and 
 potential questions that mobility data can answer, particularly in the context of post-disaster assessment.
 
 
@@ -76,14 +78,17 @@ representativeness, home and office location estimation, post-disaster displacem
 and point-of-interest visit analysis. The purpose of [`Mobilkit`](https://github.com/mindearth/mobilkit) is to provide urban planners, 
 disaster policy makers, and researchers an easy-to-use and practical toolkit to visualize, 
 analyze, and monitor post-disaster disruption and recovery. The software is freely-available 
-on GitHub along with online documentation and Jupyter Notebooks that provides step-by-step tutorials.
+on GitHub along with online documentation and Jupyter Notebooks that provide step-by-step tutorials.
 
 `Mobilkit` allows the user to 1) pre-process the dataset to select users who have sufficient amount of observations,
 2) evaluate the representativeness of the mobility data by combining with census population statistics, 
 3) conduct post-disaster displacement and recovery analysis, 4) estimate the recovery of businesses 
 and social services by using point-of-interest (POI) data, and 5) measure and characterize the spatial structure of cities. 
 
-A project carried out in collaboration with the World Bank Global Facility for Disaster Reduction and Recovery aimed at assessing the impact of the 7.1 magnitude earthquake with the epicenter located around 55km south of Puebla (about 100km south-east of Mexico City) that occurred on 19 September 2017, leveraging on the functionalities of `Mobilkit` in analyzing smartphone location data collected before and after the earthquake. Methods regarding the spatial structure of cities are demonstrated using smartphone location data provided by Quadrant that cover ten different cities around the globe in March 2022. These use cases showcase the immense potential of using mobile phone location data and `Mobilkit` for planning and recovering from climate-related, man-made, and natural disasters.
+# Use Case
+The usefulness of `Mobilkit` was demonstrated in a recent study carried out in collaboration with the World Bank Global Facility for Disaster Reduction and Recovery[@yabe2021location]. The study focused on assessing the impact of a 7.1 magnitude earthquake that occurred on September 19, 2017 where the epicenter was located around 55 km south of Puebla, Mexico (about 100 km south-east of Mexico City, Mexico). `Mobilkit` was also leveraged to conduct an analysis of the spatial structure of ten cities around the globe using smartphone location data, provided by Quadrant, to generate insights about mobility management options[^1]. Similar analysis could also be explored using `Mobilkit` for planning and recovering activities related to climate, man-made, and other natural disasters.
+
+[^1] See the notebooks covering [Urban Spatial Structure analyses](https://mobilkit.readthedocs.io/en/latest/examples/USS01_Mumbai.html) and an [inter-city comparison of Urban Spatial Structure indicators](https://mobilkit.readthedocs.io/en/latest/examples/USS02_CityComparison.html).
 
 # Acknowledgements
 
