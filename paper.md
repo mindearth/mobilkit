@@ -9,7 +9,7 @@ authors:
   - name: Enrico Ubaldi
     orcid: 0000-0003-1685-9939
     equal-contrib: true
-    affiliation: "1, 2" # (Multiple affiliations must be quoted)
+    affiliation: 1 # (Multiple affiliations must be quoted)
   - name: Takahiro Yabe
     orcid: 0000-0001-8967-1967
     equal-contrib: true 
@@ -86,7 +86,7 @@ on GitHub along with online documentation and Jupyter Notebooks that provide ste
 and social services by using point-of-interest (POI) data, and 5) measure and characterize the spatial structure of cities. 
 
 # Use Case
-The usefulness of `Mobilkit` was demonstrated in a recent study carried out in collaboration with the World Bank Global Facility for Disaster Reduction and Recovery[@yabe2021location]. The study focused on assessing the impact of a 7.1 magnitude earthquake that occurred on September 19, 2017 where the epicenter was located around 55 km south of Puebla, Mexico (about 100 km south-east of Mexico City, Mexico). `Mobilkit` was also leveraged to conduct an analysis of the spatial structure of ten cities around the globe using smartphone location data, provided by Quadrant, to generate insights about mobility management options[^1]. Similar analysis could also be explored using `Mobilkit` for planning and recovering activities related to climate, man-made, and other natural disasters.
+The usefulness of `Mobilkit` was demonstrated in a recent study carried out in collaboration with the World Bank Global Facility for Disaster Reduction and Recovery [@yabe2021location]. The study focused on assessing the impact of a 7.1 magnitude earthquake that occurred on September 19, 2017 where the epicenter was located around 55 km south of Puebla, Mexico (about 100 km south-east of Mexico City, Mexico). `Mobilkit` was also leveraged to conduct an analysis of the spatial structure of ten cities around the globe using smartphone location data, provided by Quadrant, to generate insights about mobility management options[^1]. Similar analysis could also be explored using `Mobilkit` for planning and recovering activities related to climate, man-made, and other natural disasters.
 
 [^1] See the notebooks covering [Urban Spatial Structure analyses](https://mobilkit.readthedocs.io/en/latest/examples/USS01_Mumbai.html) and an [inter-city comparison of Urban Spatial Structure indicators](https://mobilkit.readthedocs.io/en/latest/examples/USS02_CityComparison.html).
 
