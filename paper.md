@@ -59,8 +59,7 @@ resilience, large-scale mobility data remain under-utilized in real-world disast
 management operations to this date [@barra2020solid].
 
 At present, only few tools allow for an integrated and inclusive analysis of mobility data. 
-While several tookits allow users to perform some basic analytics on large mobility datasets
-(e.g., [@de2016bandicoot] or [@pappalardo2019scikitmobility]), these cover only some of the
+While several tookits allow users to perform some basic analytics on large mobility datasets—e.g., [@de2016bandicoot] or [@pappalardo2019scikitmobility]—, these cover only some of the
 steps in the mobility data pipeline.
 These toolkits also do not provide adequate data pre-processing and visualization
 functionality which causes users to seek additional external options.
