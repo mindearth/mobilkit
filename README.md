@@ -123,22 +123,18 @@ We show the basic usage and functionalities in the [mobilkit_tutorial.ipynb](doc
 ## Citing
 If you use `mobilkit` please cite us: 
 
-> Enrico Ubaldi, Takahiro Yabe, Nicholas K. W. Jones, Maham Faisal Khan, Satish V. Ukkusuri, Riccardo Di Clemente and Emanuele Strano
+> Enrico Ubaldi, Takahiro Yabe, Nicholas Jones, Maham Faisal Khan, Alessandra Feliciotti, Riccardo Di Clemente, Satish V. Ukkusuri and Emanuele Strano
 > **Mobilkit: A Python Toolkit for Urban Resilience and Disaster Risk Management Analytics using High Frequency Human Mobility Data**,
-> 2021, KDD 2021 Humanitarian Mapping Workshop, https://arxiv.org/abs/2107.14297
+> Journal of Open Source Software, **9**, 95, 5201, (2024), [Doi: 10.21105/joss.05201](https://doi.org/10.21105/joss.05201)
 
 Bibtex:
 ```
-@misc{ubaldi2021mobilkit,
-    title={Mobilkit: A Python Toolkit for Urban Resilience and Disaster Risk Management Analytics using High Frequency Human Mobility Data},
-    author={Enrico Ubaldi and Takahiro Yabe and Nicholas K. W. Jones and Maham Faisal Khan and Satish V. Ukkusuri and Riccardo {Di Clemente} and Emanuele Strano},
-    year={2021},
-    eprint={2107.14297},
-    primaryClass={cs.CY},
-    archivePrefix={arXiv},
-}
+@article{Ubaldi2024, doi = {10.21105/joss.05201},
+url = {https://doi.org/10.21105/joss.05201}, year = {2024}, publisher = {The Open Journal}, volume = {9}, number = {95}, pages = {5201},
+author = {Enrico Ubaldi and Takahiro Yabe and Nicholas Jones and Maham Faisal Khan and Alessandra Feliciotti and Riccardo Di Clemente and Satish V. Ukkusuri and Emanuele Strano},
+title = {Mobilkit: A Python Toolkit for Urban Resilience and Disaster Risk Management Analytics},
+journal = {Journal of Open Source Software}}
 ```
-
 <a id='credits'></a>
 ## Credits and contacts
 This code has been developed by [Mindearth](https://mindearth.ch), the [Global Facility for Disaster Reduction and Recovery](https://www.gfdrr.org/en) (GFDRR) and [Purdue University](https://www.purdue.edu/).
